@@ -1,0 +1,16 @@
+{
+  "name": "Fractured Universe",
+  "description": "Game client + multiplayer backend (accounts, persistent state, live battle rooms) served from one Node app.",
+  "buildpacks": [
+    { "url": "heroku/nodejs" }
+  ],
+  "env": {
+    "SESSION_SECRET": {
+      "description": "Random secret used to sign session tokens. Generate with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+      "generator": "secret"
+    }
+  },
+  "addons": [
+    "heroku-postgresql:essential-0"
+  ]
+}
