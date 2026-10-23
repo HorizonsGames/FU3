@@ -237,7 +237,7 @@
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, 0.97);
-            z-index: 99999;
+            z-index: 1000001;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -25210,8 +25210,14 @@ const SHIP_IMAGE_DATA = {
             // live battle rooms). Falls through to the local-only auth.db path
             // below if MP isn't configured, unreachable, or the account only
             // exists locally (e.g. testers who played before the backend existed).
-            if (MP_CONFIG.enabled) {
+            // MP is null when multiplayerClient.js failed to load. Static hosts
+            // such as Netlify serve an HTML 404 for that script, so MP.login
+            // would throw before the local fallback and the click would look dead.
+            if (MP) {
                 MP.login(username, password).then(async (mpPlayer) => {
+                    if (!mpPlayer || !mpPlayer.username) {
+                        throw new Error('Multiplayer login returned no account');
+                    }
                     console.log('✅ MP login successful!', mpPlayer.username);
                     await mpConnectSocket();
                     const { state } = await MP.loadState().catch(() => ({ state: {} }));
@@ -25223,8 +25229,13 @@ const SHIP_IMAGE_DATA = {
                         ...state, // saved fleets/planets/resources/etc, if any
                     });
                 }).catch((mpErr) => {
-                    console.warn('[MP] login failed, falling back to local auth:', mpErr.message);
-                    handleLoginLocal(username, password, errorDiv);
+                    console.warn('[MP] login failed, falling back to local auth:', mpErr && mpErr.message);
+                    try {
+                        handleLoginLocal(username, password, errorDiv);
+                    } catch (localErr) {
+                        errorDiv.textContent = localErr.message || 'Login failed';
+                        errorDiv.style.display = 'block';
+                    }
                 });
                 return;
             }
@@ -25354,14 +25365,22 @@ const SHIP_IMAGE_DATA = {
             // real/cross-device instead of trapped in this browser's localStorage.
             // Falls through to the local-only path if MP isn't configured/reachable,
             // or the server rejects it (e.g. duplicate username), same as login.
-            if (MP_CONFIG.enabled) {
+            if (MP) {
                 MP.register(username, password, email, window.auth.selectedRace).then(async (mpPlayer) => {
+                    if (!mpPlayer || !mpPlayer.username) {
+                        throw new Error('Multiplayer register returned no account');
+                    }
                     console.log('✅ MP account created!', mpPlayer.username);
                     await mpConnectSocket();
                     startGameSession({ username: mpPlayer.username, race: mpPlayer.race, accountType: normalizeAccountType(mpPlayer.accountType), sessionToken: MP.token });
                 }).catch((mpErr) => {
-                    console.warn('[MP] register failed, falling back to local auth:', mpErr.message);
-                    handleRegisterLocal(username, email, password, window.auth.selectedRace, errorDiv);
+                    console.warn('[MP] register failed, falling back to local auth:', mpErr && mpErr.message);
+                    try {
+                        handleRegisterLocal(username, email, password, window.auth.selectedRace, errorDiv);
+                    } catch (localErr) {
+                        errorDiv.textContent = localErr.message || 'Registration failed';
+                        errorDiv.style.display = 'block';
+                    }
                 });
                 return;
             }
