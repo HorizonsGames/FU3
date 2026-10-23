@@ -1,0 +1,8 @@
+# These are dev-time tooling (generating the player manual PDF/screenshots),
+# not anything the running app needs — excluding them keeps the Heroku slug
+# leaner and keeps Python-looking files further away from build detection.
+*.py
+__pycache__/
+manual_assets/
+capture_manual_screenshots.py
+build_player_manual_pdf.py
