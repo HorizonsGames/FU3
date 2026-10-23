@@ -1,7 +1,7 @@
-# Fractured Universe is a static game: index.html and assets/ live at the
-# repo root. The Netlify UI was set to `expo export -p web` with publish
-# directory `dist`. That command fails because this project does not use Expo.
-# Settings here override the UI.
+# Fractured Universe is a static game, not an Expo app. The Netlify UI
+# build command was `expo export -p web` and its publish directory is `dist`.
+# This file overrides the build command. The publish directory stays `dist`
+# so it matches the UI, and the command copies the repo into that folder.
 [build]
-  command = "echo \"Static site: publish the repository root\""
-  publish = "."
+  publish = "dist"
+  command = 'mkdir -p dist && find . -mindepth 1 -maxdepth 1 \( -name dist -o -name .git \) -prune -o -exec cp -a {} dist/ \;'
