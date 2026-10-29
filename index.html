@@ -7794,6 +7794,7 @@
                 document.getElementById('commanderPanel').style.display = 'flex';
                 document.getElementById('commanderOverlay').style.display = 'block';
                 this.refreshView();
+                if (window.tutorialManager) window.tutorialManager.completeAction('commander_open');
             }
             
             closePanel() {
@@ -13146,7 +13147,13 @@ const SHIP_IMAGE_DATA = {
                     // Load game state
                     console.log('💾 Loading game state...');
                     if (playerData.gameState.resources) {
-                        this.resources = playerData.gameState.resources;
+                        const resourceDefaults = { credits: 50000, metal: 25000, he3: 10000, food: 15000, population: 1000, researchPoints: 90 };
+                        this.resources = Object.assign({}, resourceDefaults, playerData.gameState.resources);
+                        Object.keys(resourceDefaults).forEach(key => {
+                            if (typeof this.resources[key] !== 'number' || isNaN(this.resources[key])) {
+                                this.resources[key] = resourceDefaults[key];
+                            }
+                        });
                     }
                     
                     if (playerData.gameState.planets && playerData.gameState.planets.length > 0) {
@@ -13508,6 +13515,12 @@ const SHIP_IMAGE_DATA = {
                     console.log('✅ All game intervals started successfully');
                     // Start Traxis The Destroyer random spawn scheduler
                     this._scheduleTraxisSpawn();
+                    const tutorialGame = this;
+                    setTimeout(() => {
+                        if (window.game === tutorialGame && window.tutorialManager && window.tutorialManager.maybeAutoStart) {
+                            window.tutorialManager.maybeAutoStart();
+                        }
+                    }, 900);
                 } catch (error) {
                     console.error('❌ FATAL ERROR in init():', error);
                     console.error('Stack trace:', error.stack);
@@ -14241,6 +14254,16 @@ const SHIP_IMAGE_DATA = {
 
                     const planet  = this.addRandomPlanet();
                     planet.scouted = true; // mark as player-discovered
+                    // Keep the find inside sensor range of a world the player owns,
+                    // otherwise it never appears on the Available tab.
+                    const anchor = this.planets.find(p => this._isMyPlanet(p));
+                    if (anchor) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = 400 + Math.random() * 500;
+                        planet.position.x = anchor.position.x + Math.cos(angle) * dist;
+                        planet.position.y = anchor.position.y + Math.sin(angle) * dist;
+                    }
+                    if (window.tutorialManager) window.tutorialManager.completeAction('scout');
 
                     this.renderPlanets();
                     this.renderAvailablePlanets();
@@ -14401,6 +14424,7 @@ const SHIP_IMAGE_DATA = {
             
             renderPlanets() {
                 const list = document.getElementById('planetList');
+                if (!list) return;
                 
                 // Sort planets: owned first, then by name
                 const sortedPlanets = [...this.planets].sort((a, b) => {
@@ -18536,6 +18560,7 @@ const SHIP_IMAGE_DATA = {
                     this.updateResources();
                     this.updateMap();
                     this.showNotification(`✅ ${planet.name} colonized! (+${(planet.population||0).toLocaleString()} population)`);
+                    if (window.tutorialManager) window.tutorialManager.completeAction('colonize');
 
                     // Play claim animation on the card, then re-render after it finishes
                     const claimCard = document.querySelector(
@@ -18597,6 +18622,7 @@ const SHIP_IMAGE_DATA = {
                 };
                 
                 this.showNotification(`🔍 Searching ${planet.name} for artifacts... (30s)`);
+                if (window.tutorialManager) window.tutorialManager.completeAction('planet_search');
                 this.renderOwnedPlanets();
                 
                 // Search timer
@@ -18889,6 +18915,7 @@ const SHIP_IMAGE_DATA = {
                         this.updateResources();
                         this.renderPlanetDetails();
                         this.showNotification(`${this.selectedPlanet.name} colonized!`);
+                        if (window.tutorialManager) window.tutorialManager.completeAction('colonize');
                     } else {
                         this.showNotification('Need 5,000 credits to colonize!');
                     }
@@ -21452,6 +21479,7 @@ const SHIP_IMAGE_DATA = {
                     this.renderShipBuildList();
                     this.renderMaintenance();
                     this.showNotification(`🏭 Building ${quantity}x ${ship.name}... (${buildTime}s)`);
+                    if (window.tutorialManager) window.tutorialManager.completeAction('build_ship');
                 }
             }
             
@@ -21494,6 +21522,7 @@ const SHIP_IMAGE_DATA = {
                     this.renderShipBuildList();
                     this.renderMaintenance();
                     this.showNotification(`🏭 Building ${quantity}x ${ship.name}... (${buildTime}s)`);
+                    if (window.tutorialManager) window.tutorialManager.completeAction('build_ship');
                 }
             }
 
@@ -21888,6 +21917,7 @@ const SHIP_IMAGE_DATA = {
                 this.resources.credits -= building.cost.credits;
                 const prevTier = this.getPlanetTierInfo(planet).tier;
                 planet.buildings[buildingName] = currentLevel + 1;
+                if (window.tutorialManager) window.tutorialManager.completeAction('build_building');
                 const newTierInfo = this.getPlanetTierInfo(planet);
                 const newTier = newTierInfo.tier;
 
@@ -22645,6 +22675,7 @@ const SHIP_IMAGE_DATA = {
                     this.renderRankings();
                 } else if (tab === 'crafting') {
                     this.renderInlineCrafting();
+                    if (window.tutorialManager) window.tutorialManager.completeAction('open_crafting');
                 } else if (tab === 'raceTech') {
                     this.renderRaceTech();
                 }
@@ -23857,6 +23888,7 @@ const SHIP_IMAGE_DATA = {
                 });
                 
                 this.showNotification(`🔬 Research Started: ${tech.name}`);
+                if (window.tutorialManager) window.tutorialManager.completeAction('research');
                 this.updateDisplay();
                 // Force immediate re-render — switch to available tab then back to ensure grid refreshes
                 this.renderTechTree();
@@ -26879,6 +26911,31 @@ const SHIP_IMAGE_DATA = {
         // Audio: manual play only — no autostart
         
         console.log('✅ Audio Manager loaded');
+
+        window.grantTutorialCommanders = function(game) {
+            if (!game) return 0;
+            if (!Array.isArray(game.commanders)) game.commanders = [];
+            if (game.commanders.length > 0) return 0;
+            const raceName = game.selectedRace && game.selectedRace.name;
+            let pool = ((COMMANDERS[raceName]) || []).filter(c => c.rarity === 'COMMON');
+            if (!pool.length) {
+                Object.keys(COMMANDERS).some(name => {
+                    pool = (COMMANDERS[name] || []).filter(c => c.rarity === 'COMMON');
+                    return pool.length > 0;
+                });
+            }
+            if (!pool.length) return 0;
+            const stamp = Date.now();
+            const primary = JSON.parse(JSON.stringify(pool[0]));
+            const other = pool.find(c => c.id !== primary.id);
+            for (let i = 0; i < 3; i++) {
+                game.commanders.push(Object.assign(JSON.parse(JSON.stringify(primary)), { stars: 1, acquiredDate: stamp }));
+            }
+            if (other) {
+                game.commanders.push(Object.assign(JSON.parse(JSON.stringify(other)), { stars: 1, acquiredDate: stamp }));
+            }
+            return game.commanders.length;
+        };
     </script>
     
     <!-- Bounties Panel -->
@@ -28062,7 +28119,7 @@ window.playAsGuest = function() {
                 race: chosenRace,
                 accountType: 'Guest',
                 credits: 100000,
-                resources: { metal: 50000, he3: 25000, food: 30000 }
+                resources: { credits: 100000, metal: 50000, he3: 25000, food: 30000, population: 1000, researchPoints: 90 }
             };
 
             const container = document.querySelector('.container');
@@ -28266,200 +28323,182 @@ window.tutorialManager = (() => {
 
     // ── Step Definitions ───────────────────────────────────────────────
     const STEPS = [
-        // ── 1. Welcome ──────────────────────────────────────────────────
         {
             id: 'welcome',
             icon: '🌌',
             title: 'Welcome to Fractured Universe',
-            body: `Welcome, Commander! This tutorial will walk you through every core system — from colonizing your first planet to crafting powerful gear and crushing your enemies.\n\nYou've been granted <strong style="color:#ffd700;">4 Common Commanders</strong> to get you started. Let's begin.`,
-            hint: null,
+            body: `Welcome, Commander. This walkthrough follows the real buttons, costs, and waits in a new empire.\n\nYou start with <strong style="color:#ffd700;">3 planets</strong>, drone ships, <strong>50,000 credits</strong> (100,000 as a guest), and <strong>5,000 Horizon Coins</strong>. Three copies of one Common commander, plus a second commander, are added to your collection.\n\nDrag this window by the header if it covers a button. Next stays locked until the required action actually succeeds.`,
+            hint: 'You can restart this any time from the account menu → Restart Tutorial.',
             target: null,
             position: 'center',
             waitFor: null
         },
-        // ── 2. Resources ────────────────────────────────────────────────
         {
             id: 'resources',
             icon: '💰',
             title: 'Your Resources',
-            body: `The resource bar shows everything your empire runs on:\n\n• <strong style="color:#ffd700;">Credits</strong> — currency for colonizing and building\n• <strong style="color:#a0a0a0;">Metal</strong> — harvested from planets, used to build ships\n• <strong style="color:#00ff88;">HE3</strong> — rare fuel for advanced tech and large fleets\n• <strong style="color:#ff9500;">Food</strong> — keeps your population fed and growing\n• <strong style="color:#00d9ff;">Research Points</strong> — spent on unlocking technologies\n• <strong style="color:#ff8800;">⚡ Power Rating</strong> — your total combat strength`,
-            hint: 'Running out of food or credits can cripple your expansion — watch them closely.',
+            body: `The bar under the header is your economy:\n\n• <strong style="color:#ffd700;">Credits</strong> — colonizing, building, and research\n• <strong style="color:#a0a0a0;">Metal</strong> — ships and structures\n• <strong style="color:#00ff88;">HE3</strong> — scouting, colonizing, and searches\n• <strong style="color:#ff9500;">Food</strong> — population\n• <strong>Population</strong> — people on worlds you own\n• <strong style="color:#00d9ff;">Research</strong> — spent in the Technology Tree. A new empire has 90\n• <strong style="color:#ff8800;">⚡ Power</strong> — your combat strength`,
+            hint: 'Scouting and searching spend both credits and HE3.',
             target: '.resource-subheader',
             position: 'below',
             waitFor: null
         },
-        // ── 3. Scout ────────────────────────────────────────────────────
         {
             id: 'scout',
             icon: '🔭',
-            title: 'Scout a New Planet',
-            body: `The left panel is your <strong style="color:#00d9ff;">Planet Command</strong>. From here you scout, colonize, manage, and attack worlds.\n\nClick <strong style="color:#00d9ff;">🔭 Scout New Planet</strong> to discover your first world. Scouting is free and instant.`,
-            hint: 'Scouting reveals a random unclaimed planet — always scout before you colonize.',
-            target: '.scout-btn',
+            title: 'Scout a Planet',
+            body: `On the left, Planet Management opens on the <strong>Owned</strong> tab. Press <strong style="color:#00d9ff;">🔭 Scout New Planet</strong>.\n\nScouting is not free or instant. It spends credits and HE3 based on how many worlds are already on the map, then runs for up to 15 seconds. When the scan finishes, the new world is on the <strong>Available</strong> tab.\n\nNext unlocks only after a world is actually discovered.`,
+            hint: 'If a random space event interrupts the scan, press Scout New Planet again.',
+            target: 'button[onclick="window.game.scoutNewPlanet()"]',
             position: 'right',
             waitFor: 'scout'
         },
-        // ── 4. Colonize ─────────────────────────────────────────────────
         {
             id: 'colonize',
             icon: '🪐',
-            title: 'Colonize a Planet',
-            body: `A planet has been discovered! Open the <strong style="color:#00d9ff;">Available</strong> tab and click <strong style="color:#00ff88;">🪐 Colonize</strong> on it to claim it for your empire.\n\nColonizing costs <strong style="color:#ffd700;">5,000 Credits</strong>. Every great empire starts with a single world.`,
-            hint: 'Colonized planets generate resources continuously. More planets = faster growth.',
+            title: 'Colonize It',
+            body: `Open the <strong>Available</strong> tab and press <strong style="color:#00d9ff;">🪐 Colonize</strong> on the world you just scouted.\n\nThe price is 500 credits + 100 per world you already own, and 100 HE3 + 20 per world. It is not a flat 5,000 credits. Next unlocks when the colony is yours.`,
+            hint: 'If the button says you cannot afford it, the notice shows the exact credits and HE3 still required.',
             target: '#planetTabAvailable',
             position: 'right',
             waitFor: 'colonize'
         },
-        // ── 5. Planet Search (Artifacts & Crafting Materials) ───────────
         {
-            id: 'planet_search',
+            id: 'search',
             icon: '🔍',
-            title: 'Search Planets for Materials',
-            body: `Every owned planet can be searched for <strong style="color:#ffd700;">crafting materials and artifacts</strong>. In the <strong style="color:#00d9ff;">Owned</strong> tab, click the <strong style="color:#ffd700;">🔍 Search</strong> button on any of your planets.\n\nSearches take time but can yield:\n• <strong style="color:#00ff88;">Crafting materials</strong> — Metal, Carbon, Crystals, rare compounds\n• <strong style="color:#ffd700;">Artifacts</strong> — unique items with powerful one-time effects\n• <strong style="color:#a0a0a0;">Research bonuses</strong> — instant research point boosts\n\nRare finds like <strong style="color:#ff00ff;">Ancient Artifact Fragments</strong> and <strong style="color:#ffd700;">Ancient Audio Discs</strong> can only be found this way.`,
-            hint: 'Barren, Ice, and Forest planets have a +20% bonus to material drop rates.',
+            title: 'Search an Owned World',
+            body: `Go back to the <strong>Owned</strong> tab. On any planet you own, press <strong style="color:#00d9ff;">🔍 Search</strong>.\n\nA search costs <strong>1,000 credits</strong> and <strong>500 HE3</strong> and runs for 30 seconds. Starting it is enough — you do not have to wait for the timer to finish. The materials it finds are used later in Crafting.`,
+            hint: 'Searching a world that is already being searched does not count twice.',
             target: '#planetTabOwned',
             position: 'right',
             waitFor: 'planet_search'
         },
-        // ── 6. Buildings ────────────────────────────────────────────────
         {
             id: 'buildings',
             icon: '🏗️',
-            title: 'Build Structures',
-            body: `Planets become powerful through buildings. Click the <strong style="color:#00d9ff;">Buildings</strong> tab, select a planet, and construct your first structure.\n\nTop early picks:\n• <strong style="color:#ffd700;">Mining Outpost</strong> — +15% Metal\n• <strong style="color:#ffd700;">Science Lab</strong> — +50% Research Points\n• <strong style="color:#ffd700;">Missile Silo</strong> — +50% Planet Defense`,
-            hint: 'Each building has a max level — upgrade them over time to maximize output.',
+            title: 'Build a Structure',
+            body: `Click one of your owned planet cards. That selects it for construction. Then open the <strong>Buildings</strong> tab and press <strong>Build</strong>.\n\nYou cannot build until a planet is selected. A new empire can afford <strong>Missile Silo</strong> (10,000 credits, 5,000 metal, +50% defense) or <strong>Farm</strong> (10,000 credits, 7,000 metal, +15% food). Any successful build counts.`,
+            hint: 'If every Build button is disabled, go back to Owned and click a planet card first.',
             target: '#planetTabBuildings',
             position: 'right',
             waitFor: 'build_building'
         },
-        // ── 7. Research Technologies ────────────────────────────────────
         {
             id: 'research',
             icon: '🔬',
-            title: 'Research Technologies',
-            body: `Open the <strong style="color:#00d9ff;">Tech Tree</strong> (🔬 in the header) and research your first technology.\n\nStart with economic techs:\n• <strong style="color:#00ff88;">Advanced Mining</strong> — more Metal\n• <strong style="color:#00ff88;">Efficient Refining</strong> — more credits\n\nOnce you have enough Research Points, you can also <strong style="color:#00d9ff;">research new ship classes</strong> in the Ship Research Center on the right panel — unlocking Frigates, Cruisers, Carriers, and more.`,
-            hint: 'Technologies have prerequisites — plan your tree carefully.',
+            title: 'Research a Technology',
+            body: `Press the <strong style="color:#00d9ff;">Technology Tree</strong> button in the header and click <strong>Advanced Mining</strong>.\n\nIt costs 5,000 credits, 2,000 metal, and 50 Research, has no prerequisite, and gives <strong>+20% metal</strong>. It takes about 20 minutes to finish. Starting it is enough.\n\n<strong>Efficient Refining</strong> gives +25% HE3, not credits, and costs 60 Research — you will not have enough left after Advanced Mining.`,
+            hint: 'Click the Advanced Mining card itself. A message that requirements are not met means the click did not count.',
             target: '[title="Technology Tree"]',
             position: 'below',
             waitFor: 'research'
         },
-        // ── 8. Build Ships ───────────────────────────────────────────────
         {
             id: 'ships',
-            icon: '⚓',
-            title: 'Build Your Fleet',
-            body: `The <strong style="color:#00d9ff;">Ship Production</strong> panel at the bottom lets you build combat vessels. Click <strong style="color:#00d9ff;">Build Ships</strong> and queue your first ship.\n\nStart small — <strong style="color:#ffd700;">Drones</strong> and <strong style="color:#ffd700;">Scout Ships</strong> are cheap and fast. Upgrade to <strong style="color:#ff8800;">Frigates</strong>, <strong style="color:#ff4444;">Cruisers</strong>, and <strong style="color:#ff00ff;">Carriers</strong> as your economy grows.`,
-            hint: 'Ships are built in queues — you can queue multiple at once.',
+            icon: '🚀',
+            title: 'Queue a Ship',
+            body: `In <strong>Ship Production</strong> on the right, open <strong>Build Ships</strong>. Drones and Scouts are already unlocked, and you already own drones.\n\nPress <strong>Build 1</strong> on a drone. Drones cost only a few credits and a little metal. The ship enters the build queue. You do not have to wait for the timer.`,
+            hint: 'Building a ship you cannot afford does not advance this step.',
             target: '#fleetTabBuildShips',
             position: 'left',
             waitFor: 'build_ship'
         },
-        // ── 9. Assemble a Fleet ──────────────────────────────────────────
         {
-            id: 'assemble_fleet',
-            icon: '🚀',
-            title: 'Assemble a Fleet',
-            body: `Follow these steps to create your first fleet:\n\n<strong style="color:#00d9ff;">Step 1</strong> — Look at the <strong style="color:#ffd700;">Ship Production</strong> panel at the bottom of the screen.\n\n<strong style="color:#00d9ff;">Step 2</strong> — Click the <strong style="color:#00ff88;">MY FLEET</strong> tab (next to Build Ships).\n\n<strong style="color:#00d9ff;">Step 3</strong> — Click the <strong style="color:#00ff88;">➕ CREATE FLEET</strong> button on the right side of the Fleet Command bar.\n\n<strong style="color:#00d9ff;">Step 4</strong> — Enter a name for your fleet when prompted, then click OK.\n\n<strong style="color:#00d9ff;">Step 5</strong> — Add ships to your fleet from the ship selector that opens.`,
-            hint: 'Fleets earn XP from battles and level up — a veteran fleet hits much harder.',
-            target: null,
-            position: 'center',
+            id: 'fleet',
+            icon: '⚔️',
+            title: 'Create a Fleet',
+            body: `Open the <strong>My Fleet</strong> tab and press <strong style="color:#00d9ff;">➕ CREATE FLEET</strong>.\n\nType a name in the prompt and press OK. Cancel, or an empty name, does not count. You already have drones, so after the fleet exists you can add ships in the window that opens. Creating the fleet is enough.`,
+            hint: 'The prompt is a browser dialog. Confirm it to continue.',
+            target: '#createFleetBtn',
+            position: 'left',
             waitFor: 'create_fleet'
         },
-        // ── 10. Commander Purchases ──────────────────────────────────────
         {
-            id: 'commander_shop',
-            icon: '🛒',
-            title: 'Buy Commanders',
-            body: `Click <strong style="color:#00d9ff;">COMMANDERS</strong> in the header to open Commander HQ, then go to the <strong style="color:#ffd700;">Shop</strong> tab.\n\nYou can spend <strong style="color:#00d9ff;">Horizon Coins</strong> to open Commander packs:\n• <strong style="color:#a0a0a0;">Common Pack</strong> — guaranteed Common commander\n• <strong style="color:#4a9eff;">Rare Pack</strong> — chance at Rare or higher\n• <strong style="color:#9d4aff;">Epic Pack</strong> — chance at Epic or Legendary\n\nYou start with <strong style="color:#ffd700;">5,000 Horizon Coins</strong> — use them wisely!`,
-            hint: 'Higher rarity commanders have stronger bonuses but require more copies to upgrade.',
-            target: '.header-commanders-btn',
+            id: 'commanders',
+            icon: '⭐',
+            title: 'Open Commanders',
+            body: `Press <strong style="color:#ffd700;">COMMANDERS</strong> in the header. That is the gold button, not Buy Coins.\n\nYou start with <strong>5,000 Horizon Coins</strong>. The shop sells a Common pack for 100, an Epic pack for 300, and a Legendary pack for 500. Opening the panel is enough — you do not have to buy one. Your starter commanders are on the <strong>Collection</strong> tab.`,
+            hint: 'Buy Coins is the purple button beside it and does not complete this step.',
+            target: 'button[onclick*="commanderManager.openPanel()"]',
             position: 'below',
             waitFor: 'commander_open'
         },
-        // ── 11. Assign Commanders ────────────────────────────────────────
         {
-            id: 'assign_commanders',
+            id: 'assign',
             icon: '📌',
-            title: 'Assign Commanders',
-            body: `Commanders do nothing sitting in your collection — assign them to <strong style="color:#00d9ff;">planets</strong> or <strong style="color:#00ff88;">fleets</strong> to activate their bonuses.\n\n<strong style="color:#00d9ff;">To assign to a Planet:</strong>\n1. Click <strong style="color:#ffd700;">COMMANDERS</strong> in the header\n2. Go to the <strong style="color:#ffd700;">Collection</strong> tab\n3. Find a commander and click <strong style="color:#00ff88;">Assign to Planet</strong>\n4. Select which planet from the list that appears\n\n<strong style="color:#00d9ff;">To assign to a Fleet:</strong>\n1. Open <strong style="color:#ffd700;">Ship Production → My Fleet</strong>\n2. Find a fleet card and click <strong style="color:#00ff88;">⭐ Assign Commander</strong>\n3. Pick a commander from the list\n\nPlanet assignment boosts <strong style="color:#00ff88;">resource output</strong> and <strong style="color:#ff8800;">defense</strong>. Fleet assignment boosts <strong style="color:#ff4444;">damage</strong> and <strong style="color:#4a9eff;">shields</strong>.`,
-            hint: 'You can only assign one commander per planet or fleet — choose the right commander for the job.',
-            target: '.header-commanders-btn',
+            title: 'Assign a Commander',
+            body: `On the Collection tab, press <strong>Assign to Planet</strong> on a commander, then click one of your worlds in the list.\n\n<strong>Assign to Fleet</strong> works the same way if you would rather attach them to the fleet you just named. The step completes when the assignment is confirmed.`,
+            hint: 'The Collection tab is the one that opens with the panel.',
+            target: 'button[onclick*="commanderManager.openPanel()"]',
             position: 'below',
             waitFor: 'commander_assigned'
         },
-        // ── 12. Commander Stacking ───────────────────────────────────────
         {
-            id: 'commander_stacking',
-            icon: '⬆️',
-            title: 'Stack & Upgrade Commanders',
-            body: `You've been given <strong style="color:#00d9ff;">4 Common Commanders</strong>. Common commanders require <strong style="color:#ffd700;">3 copies</strong> to stack into a ⭐⭐ upgrade.\n\nTo stack: Open <strong style="color:#00d9ff;">COMMANDERS → Collection</strong>, find a commander you have duplicates of, and click <strong style="color:#00ff88;">⬆ Stack</strong>.\n\nStacking permanently destroys the extra copies but upgrades the commander's star rating — increasing all their bonuses significantly.\n\nStack tiers:\n• ⭐ → ⭐⭐ requires <strong>3 copies</strong>\n• ⭐⭐ → ⭐⭐⭐ requires <strong>3 more copies</strong> (9 total)`,
-            hint: 'Prioritize stacking commanders you use most — don\'t stack commanders assigned to planets or fleets.',
-            target: '.header-commanders-btn',
+            id: 'upgrade',
+            icon: '🌟',
+            title: 'Upgrading Commanders',
+            body: `You were given <strong>3 copies</strong> of one Common commander. Commons need 3 copies of the same commander before the gold <strong>🌟 Upgrade</strong> button appears. Epic and Legendary commanders need 2.\n\nUpgrade spends those copies and raises that commander by one star. You do not have to do it now.`,
+            hint: 'The counter under a commander reads like 3/3 when an upgrade is available.',
+            target: 'button[onclick*="commanderManager.openPanel()"]',
             position: 'below',
             waitFor: null
         },
-        // ── 13. Crafting ─────────────────────────────────────────────────
         {
             id: 'crafting',
             icon: '⚗️',
-            title: 'Craft Powerful Items',
-            body: `The <strong style="color:#00d9ff;">Crafting Workshop</strong> lets you combine materials gathered from planet searches into powerful items.\n\nOpen it from the right panel — click the <strong style="color:#ffd700;">CRAFTING</strong> tab in the Ship Research Center.\n\nCrafted items can provide:\n• <strong style="color:#00ff88;">Temporary resource boosts</strong>\n• <strong style="color:#ff8800;">Fleet damage or shield buffs</strong>\n• <strong style="color:#ffd700;">Rare consumables</strong> with unique effects\n\nSearch planets regularly to stock up on materials — rarer materials yield more powerful recipes.`,
-            hint: 'Check the Crafting Workshop often — new recipes become available as you unlock technologies.',
+            title: 'Open Crafting',
+            body: `In the <strong>Ship Research Center</strong> on the right, press the <strong>Crafting</strong> tab.\n\nRecipes turn materials from planet searches into gear, and many also cost credits. Opening the tab is enough. You may not have the materials for a recipe yet, so you do not have to craft one.`,
+            hint: 'Crafting is a tab in the research panel, not a separate building.',
             target: '#researchTabCrafting',
             position: 'left',
             waitFor: 'open_crafting'
         },
-        // ── 14. Attack a Planet ───────────────────────────────────────────
         {
-            id: 'attack_planet',
+            id: 'enemy',
             icon: '⚔️',
-            title: 'Attack Enemy Planets',
-            body: `Once your fleet is strong enough, you can attack planets owned by other players or NPC pirates.\n\nGo to the <strong style="color:#ff4444;">Enemy</strong> tab in Planet Management to see hostile worlds. Click <strong style="color:#ff8800;">⚔️ Attack</strong> on any enemy planet to launch an assault.\n\nBefore attacking, check your <strong style="color:#ff8800;">⚡ Power Rating</strong> vs the planet's defense. A higher power rating means better odds of victory.\n\n<strong style="color:#ffd700;">Victory</strong> can capture the planet and plunder its resources. <strong style="color:#ff4444;">Defeat</strong> destroys your attacking fleet.`,
-            hint: 'Assign a combat Commander to your fleet before attacking — the damage bonus can be decisive.',
+            title: 'Enemy Worlds',
+            body: `The <strong>Enemy</strong> tab lists worlds owned by other races. <strong>⚔️ Attack</strong> sends a fleet. <strong>🔒 Siege</strong> is the longer assault.\n\nA loss can destroy the ships you send, so this tutorial does not require a battle. Look at the tab, then press Next.`,
+            hint: 'Power on the resource bar is a rough read of your combat strength before you attack.',
             target: '#planetTabEnemy',
             position: 'right',
             waitFor: null
         },
-        // ── 15. Bounty System ─────────────────────────────────────────────
         {
             id: 'bounties',
             icon: '🎯',
-            title: 'The Bounty System',
-            body: `The <strong style="color:#ffaa00;">🎯 BOUNTIES</strong> board (left panel, below Scout) lists active bounties placed on other players.\n\nBounties are placed when players spend Credits to mark an enemy — destroying that player's fleet or capturing their planet pays out the <strong style="color:#ffd700;">bounty reward</strong> in Credits.\n\nYou can:\n• <strong>Claim bounties</strong> by defeating the marked player\n• <strong>Place bounties</strong> on players who have wronged you\n• <strong>Filter</strong> by highest value or bounties you placed`,
-            hint: 'High-value bounties attract multiple hunters — coordinate with allies to take down dangerous targets.',
-            target: '[onclick="showBountiesPanel()"]',
+            title: 'Bounties',
+            body: `On the Owned tab, under Scout New Planet, the orange <strong>🎯 BOUNTIES</strong> button posts a reward for attacking a target.\n\nPlacing a bounty spends credits. You do not have to post one during the tutorial.`,
+            hint: 'The button sits on the Owned tab, directly under Scout New Planet.',
+            target: 'button[onclick="showBountiesPanel()"]',
             position: 'right',
             waitFor: null
         },
-        // ── 16. Global Chat ───────────────────────────────────────────────
         {
             id: 'chat',
             icon: '💬',
-            title: 'Global Chat',
-            body: `The <strong style="color:#00d9ff;">Global Chat</strong> panel on the right keeps you connected to all commanders in the galaxy.\n\nTabs available:\n• <strong style="color:#00d9ff;">Global</strong> — everyone in the game\n• <strong style="color:#00ff88;">Guild</strong> — only your guild members\n• <strong style="color:#ffd700;">Rankings</strong> — leaderboard\n• <strong style="color:#ff8800;">Event Log</strong> — recent battle and event history\n\nType a message and press <strong>Enter</strong> or click Send to chat. Use Global to recruit allies, call for help, or trash-talk your enemies.`,
-            hint: 'Keep an eye on the Event Log — it shows when players are attacked or planets change hands.',
-            target: '#chatContent',
-            position: 'left',
+            title: 'Chat',
+            body: `Press the <strong>chat</strong> button in the header if the panel on the right is closed.\n\nThe tabs are <strong>Global</strong>, <strong>Guild</strong>, <strong>Rankings</strong>, and <strong>Event Log</strong>. Global is where you talk. Rankings lists players. Event Log keeps system messages.`,
+            hint: 'A new session opens chat for you. The header button opens it again if you close it.',
+            target: '[title="Open Chat"]',
+            position: 'below',
             waitFor: null
         },
-        // ── 17. Guilds ────────────────────────────────────────────────────
         {
-            id: 'guilds',
+            id: 'guild',
             icon: '🏛️',
-            title: 'Create or Join a Guild',
-            body: `Guilds are player alliances that fight, trade, and grow together.\n\nTo access the Guild panel, click the <strong style="color:#9d4aff;">🏛️ Guild</strong> button in the header.\n\nYou can:\n• <strong style="color:#00ff88;">Create a guild</strong> (costs 100,000 Credits) with a custom name and tag\n• <strong style="color:#4a9eff;">Join an existing guild</strong> by searching by name or tag\n• <strong style="color:#ffd700;">Deposit resources</strong> into the guild treasury to fund shared upgrades\n• <strong style="color:#ff8800;">Coordinate attacks</strong> on powerful enemy clusters your guild can\'t solo\n\nGuild members share intel, bounties, and can back each other up in battle.`,
-            hint: 'A strong guild is often the difference between surviving and dominating.',
-            target: null,
-            position: 'center',
+            title: 'Guilds',
+            body: `Press the <strong>guild</strong> button in the header (the columns icon).\n\n<strong>Create Guild</strong> costs <strong>100,000 credits</strong>. A registered empire starts with 50,000, so you can open the panel now and create or join a guild after you can afford it. You do not have to create one to finish.`,
+            hint: 'Guests start with 100,000 credits, which is exactly the create cost.',
+            target: '[title="Guild/Alliance"]',
+            position: 'below',
             waitFor: null
         },
-        // ── 18. Complete ─────────────────────────────────────────────────
         {
             id: 'complete',
             icon: '🏆',
-            title: 'Tutorial Complete!',
-            body: `Outstanding, Commander! You now know the core systems of Fractured Universe:\n\n✅ Scouting & colonizing planets\n✅ Searching planets for materials & artifacts\n✅ Building structures\n✅ Researching technologies & ships\n✅ Building & assembling fleets\n✅ Buying & upgrading Commanders\n✅ Assigning Commanders to planets & fleets\n✅ Crafting powerful items\n✅ Attacking enemy planets\n✅ The Bounty system\n✅ Global Chat\n✅ Guilds & alliances\n\nThe galaxy awaits. Expand your empire, crush your enemies, and rise to dominance. <strong style="color:#ffd700;">Ad Astra Per Aspera.</strong>`,
-            hint: null,
+            title: 'Tutorial Complete',
+            body: `You can run a new empire with the systems that are actually on screen:\n\n✅ Scout, then Colonize on the Available tab\n✅ Search an owned world\n✅ Select a planet, then build on the Buildings tab\n✅ Start Advanced Mining in the Technology Tree\n✅ Queue a drone and create a named fleet\n✅ Open Commanders and assign one\n✅ Open the Crafting tab\n\nEnemy attacks, bounties, chat, and guilds are optional until you are ready. <strong style="color:#ffd700;">Ad Astra Per Aspera.</strong>`,
+            hint: 'Restart Tutorial in the account menu plays this again.',
             target: null,
             position: 'center',
             waitFor: null
@@ -28602,7 +28641,11 @@ window.tutorialManager = (() => {
         if (!target) { spot.style.display = 'none'; return; }
 
         overlay.style.display = 'block';
-        const r = target.getBoundingClientRect();
+        let r = target.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) {
+            try { target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+            r = target.getBoundingClientRect();
+        }
         const pad = 6;
         spot.style.display = 'block';
         spot.style.top    = (r.top    - pad) + 'px';
@@ -28624,7 +28667,7 @@ window.tutorialManager = (() => {
 
         // Body supports basic html via innerHTML
         const bodyEl = el('tutStepBody');
-        bodyEl.innerHTML = step.body.replace(/\n/g, '<br>');
+        bodyEl.innerHTML = stepBody(step).replace(/\n/g, '<br>');
 
         // Hint
         const hintEl = el('tutStepHint');
@@ -28661,6 +28704,8 @@ window.tutorialManager = (() => {
             nextBtn.style.cursor = 'pointer';
         }
 
+        prepareStep(step);
+
         // Spotlight
         const targetEl = step.target ? qs(step.target) : null;
         spotlightTarget(step.target || null);
@@ -28679,10 +28724,9 @@ window.tutorialManager = (() => {
         el('tutorialOverlay').style.display = 'block';
         el('tutorialDialog').style.display = 'block';
         initDrag();              // attach drag handlers (safe to call multiple times — guards itself via handle check)
+        ensureTutorialResources();
+        grantStarterCommanders();
         renderStep(0);
-        patchGameFunctions();
-        // Grant 4 common commanders to new players
-        setTimeout(grantStarterCommanders, 500);
     }
 
     function next() {
@@ -28769,176 +28813,102 @@ window.tutorialManager = (() => {
         }
     }
 
-    // ── Monkey-patch Game methods to detect tutorial actions ───────────
-    function patchGameFunctions() {
-        if (!window.game) return;
-
-        // Scout
-        const origScout = window.game.scoutNewPlanet.bind(window.game);
-        window.game.scoutNewPlanet = function() {
-            origScout();
-            completeAction('scout');
-        };
-
-        // Colonize (claimPlanet in Available tab) or colonizePlanet from map
-        const origColonize = window.game.colonizePlanet ? window.game.colonizePlanet.bind(window.game) : null;
-        if (origColonize) {
-            window.game.colonizePlanet = function() {
-                origColonize();
-                completeAction('colonize');
-            };
+    function stepBody(step) {
+        let body = step.body;
+        const g = window.game;
+        if (!g || !g.planets) return body;
+        if (step.id === 'scout') {
+            const n = g.planets.length;
+            const credits = Math.floor((1000 + n * 100) * 0.6);
+            const he3 = 200 + n * 20;
+            const secs = Math.min(15, Math.floor(5 + n * 0.5));
+            body += `\n\nRight now that is <strong>${credits.toLocaleString()} credits</strong> and <strong>${he3.toLocaleString()} HE3</strong>, and the scan takes <strong>${secs} seconds</strong>.`;
         }
-        const origClaim = window.game.claimPlanet ? window.game.claimPlanet.bind(window.game) : null;
-        if (origClaim) {
-            window.game.claimPlanet = function(id) {
-                origClaim(id);
-                completeAction('colonize');
-            };
+        if (step.id === 'colonize' && g.selectedRace) {
+            const owned = g.planets.filter(p => p.owner === g.selectedRace.name).length;
+            const credits = 500 + owned * 100;
+            const he3 = 100 + owned * 20;
+            body += `\n\nYou own ${owned} world${owned === 1 ? '' : 's'}, so the next Colonize costs <strong>${credits.toLocaleString()} credits</strong> and <strong>${he3.toLocaleString()} HE3</strong>.`;
         }
-
-        // Planet search for artifacts/materials
-        const origSearch = window.game.searchForArtifact ? window.game.searchForArtifact.bind(window.game) : null;
-        if (origSearch) {
-            window.game.searchForArtifact = function(planetId) {
-                origSearch(planetId);
-                completeAction('planet_search');
-            };
-        }
-
-        // Build building
-        const origBuildBuilding = window.game.buildBuilding ? window.game.buildBuilding.bind(window.game) : null;
-        if (origBuildBuilding) {
-            window.game.buildBuilding = function(name) {
-                origBuildBuilding(name);
-                completeAction('build_building');
-            };
-        }
-
-        // Research — patch startTechResearch (tech tree) which is what step 7 requires.
-        // startResearch() is ship-class research only and does NOT satisfy the 'research' waitFor.
-        const origStartTechResearch = window.game.startTechResearch ? window.game.startTechResearch.bind(window.game) : null;
-        if (origStartTechResearch) {
-            window.game.startTechResearch = function(techId) {
-                origStartTechResearch(techId);
-                completeAction('research');
-            };
-        }
-
-        // Also patch startResearch (ship research) so it counts too — belt-and-suspenders
-        const origStartResearch = window.game.startResearch ? window.game.startResearch.bind(window.game) : null;
-        if (origStartResearch) {
-            window.game.startResearch = function(name) {
-                origStartResearch(name);
-                completeAction('research');
-            };
-        }
-
-        // Build ship
-        const origBuildShips = window.game.buildShips ? window.game.buildShips.bind(window.game) : null;
-        if (origBuildShips) {
-            window.game.buildShips = function(name) {
-                origBuildShips(name);
-                completeAction('build_ship');
-            };
-        }
-
-        // Fleet creation — patch secondary methods (createNewFleet handled via direct injection below)
-        ['createFleet', 'addFleetFromTemplate', 'assembleFleet', 'addNewFleet'].forEach(fn => {
-            if (window.game[fn]) {
-                const orig = window.game[fn].bind(window.game);
-                window.game[fn] = function(...args) {
-                    orig(...args);
-                    completeAction('create_fleet');
-                };
-            }
-        });
-
-        // Commander panel open (covers shop & collection visits)
-        if (window.game.commanderManager) {
-            const origOpen = window.game.commanderManager.openPanel.bind(window.game.commanderManager);
-            window.game.commanderManager.openPanel = function() {
-                origOpen();
-                completeAction('commander_open');
-            };
-        }
-
-        // Commander assignment (step 11)
-        if (window.game.commanderManager) {
-            const origConfirmAssign = window.game.commanderManager.confirmAssignment.bind(window.game.commanderManager);
-            window.game.commanderManager.confirmAssignment = function(targetId) {
-                origConfirmAssign(targetId);
-                completeAction('commander_assigned');
-            };
-        }
-
-        // Crafting tab open
-        const origSwitchResearch = window.game.switchResearchTab ? window.game.switchResearchTab.bind(window.game) : null;
-        if (origSwitchResearch) {
-            window.game.switchResearchTab = function(tab) {
-                origSwitchResearch(tab);
-                if (tab === 'crafting') completeAction('open_crafting');
-            };
-        }
+        return body;
     }
 
-    // ── Grant 4 Common starter commanders ─────────────────────────────
+    function showBuildTab(tab) {
+        const g = window.game;
+        if (!g) return;
+        g.currentBuildTab = tab;
+        document.querySelectorAll('.fleet-tab').forEach(t => t.classList.remove('active'));
+        const btn = document.getElementById(tab === 'fleet' ? 'fleetTabMyFleet' : 'fleetTabBuildShips');
+        if (btn) btn.classList.add('active');
+        document.querySelectorAll('.build-view').forEach(v => v.style.display = 'none');
+        const view = document.getElementById('buildView' + tab.charAt(0).toUpperCase() + tab.slice(1));
+        if (view) view.style.display = 'block';
+        if (tab === 'build' && g.renderShipBuildList) g.renderShipBuildList();
+        if (tab === 'fleet' && g.renderShips) g.renderShips();
+    }
+
+    function prepareStep(step) {
+        const g = window.game;
+        if (!g || !step) return;
+        const planetTab = { scout: 'owned', colonize: 'available', search: 'owned', buildings: 'owned', enemy: 'enemy', bounties: 'owned' }[step.id];
+        if (planetTab && g.switchPlanetTab) {
+            try { g.switchPlanetTab(planetTab); } catch (e) {}
+        }
+        if (step.id === 'ships') showBuildTab('build');
+        if (step.id === 'fleet') showBuildTab('fleet');
+    }
+
+    function ensureTutorialResources() {
+        const g = window.game;
+        if (!g || !g.resources) return;
+        if (typeof g.resources.researchPoints !== 'number' || isNaN(g.resources.researchPoints)) {
+            g.resources.researchPoints = 90;
+        }
+        if (g.updateResources) g.updateResources();
+    }
+
     function grantStarterCommanders() {
-        if (!window.game || !window.game.selectedRace) return;
-        if (window.game.commanders && window.game.commanders.length > 0) return; // already has commanders
-
-        // Find common commanders for the player's race, fall back to Terran
-        const raceName = window.game.selectedRace.name || 'Terran Empire';
-        const allCmds = window.COMMANDERS_DATA || null;
-
-        // COMMANDERS is defined inside the game closure — reach it via commanderManager
-        const cm = window.game.commanderManager;
-        if (!cm || !cm.getCommandersForRace) {
-            // Fallback: inject 4 generic common stubs directly
-            const starters = [
-                { id: 'starter_001', name: 'Commander Chen',   rarity: 'COMMON', race: raceName, title: 'Navigator', image: 'Com Chen.jpg',  bonuses: { fleet: { shield: 8 }, planet: { defense: 5, researchSpeed: 5 } }, description: 'Starter commander' },
-                { id: 'starter_002', name: 'Commander Elena',  rarity: 'COMMON', race: raceName, title: 'Officer',   image: 'Com Elena.jpg', bonuses: { fleet: { damage: 5, hull: 5 }, planet: { mining: 5 } }, description: 'Starter commander' },
-                { id: 'starter_003', name: 'Commander Hayes',  rarity: 'COMMON', race: raceName, title: 'Scout',     image: 'Com Hayes.jpg', bonuses: { fleet: { damage: 5, hull: 5 }, planet: { he3Production: 5, defense: 5 } }, description: 'Starter commander' },
-                { id: 'starter_004', name: 'Commander Chen',   rarity: 'COMMON', race: raceName, title: 'Navigator', image: 'Com Chen.jpg',  bonuses: { fleet: { shield: 8 }, planet: { defense: 5, researchSpeed: 5 } }, description: 'Starter commander (duplicate for stacking)' },
-            ];
-            starters.forEach(cmd => {
-                window.game.commanders.push({ ...cmd, stars: 1, acquiredDate: Date.now() });
-            });
-            if (window.game.updateUI) window.game.updateUI();
-            if (window.chatManager) chatManager.addMessage('SYSTEM', '🎁 Tutorial Bonus: 4 Common Commanders added to your collection! (Commanders → Collection)', 'system');
-            return;
+        if (!window.game) return;
+        if (!Array.isArray(window.game.commanders)) window.game.commanders = [];
+        if (window.game.commanders.length > 0) return;
+        let added = 0;
+        if (typeof window.grantTutorialCommanders === 'function') {
+            added = window.grantTutorialCommanders(window.game) || 0;
         }
-
-        // Use commanderManager's internal roster if accessible
-        const racePool = cm.getCommandersForRace ? cm.getCommandersForRace(raceName, 'COMMON') : [];
-        const picked = racePool.slice(0, 4);
-        if (picked.length === 0) return;
-
-        picked.forEach(cmd => {
-            window.game.commanders.push({ ...cmd, stars: 1, acquiredDate: Date.now() });
-        });
-        if (window.game.updateUI) window.game.updateUI();
-        if (window.chatManager) chatManager.addMessage('SYSTEM', '🎁 Tutorial Bonus: 4 Common Commanders added to your collection! Open COMMANDERS → Collection to view them.', 'system');
+        if (!added) {
+            const raceName = (window.game.selectedRace && window.game.selectedRace.name) || 'Terran Empire';
+            const stamp = Date.now();
+            const chen = { id: 'starter_chen', name: 'Commander Chen', rarity: 'COMMON', race: raceName, title: 'Navigator', image: 'Com Chen.jpg', bonuses: { fleet: { shield: 8 }, planet: { defense: 5, researchSpeed: 5 } }, description: 'Starter commander', stars: 1, acquiredDate: stamp };
+            for (let i = 0; i < 3; i++) window.game.commanders.push(Object.assign({}, chen));
+            window.game.commanders.push(Object.assign({}, chen, { id: 'starter_elena', name: 'Commander Elena', title: 'Officer', bonuses: { fleet: { damage: 5, hull: 5 }, planet: { mining: 5 } } }));
+        }
+        if (window.chatManager) {
+            chatManager.addMessage('SYSTEM', 'Tutorial bonus: 3 copies of one Common commander, plus one more, are in COMMANDERS → Collection.', 'system');
+        }
     }
 
-    // ── Auto-launch for new players ────────────────────────────────────
+    let tutorialStartTimer = null;
     function maybeAutoStart() {
-        // Only auto-start if tutorial not previously completed
-        if (!localStorage.getItem('fu_tutorial_done')) {
-            setTimeout(start, 1800); // slight delay so game UI is fully rendered
-        }
+        const login = document.getElementById('loginScreen');
+        if (!window.game) return;
+        if (login && login.style.display !== 'none') return;
+        if (localStorage.getItem('fu_tutorial_done')) return;
+        if (active || tutorialStartTimer) return;
+        tutorialStartTimer = setTimeout(() => {
+            tutorialStartTimer = null;
+            const screen = document.getElementById('loginScreen');
+            if (active || !window.game) return;
+            if (screen && screen.style.display !== 'none') return;
+            if (localStorage.getItem('fu_tutorial_done')) return;
+            start();
+        }, 600);
     }
 
     return { start, next, prev, skip, finish, maybeAutoStart, completeAction };
 
 })();
 
-// Hook into game startup
-window.addEventListener('DOMContentLoaded', () => {
-    // Wait for game to fully init before checking tutorial
-    setTimeout(() => {
-        window.tutorialManager.maybeAutoStart();
-    }, 2500);
-});
+// Tutorial starts from Game.init once the login screen is gone.
 </script>
 
     <!-- ========== MISSIONS SYSTEM ========== -->
