@@ -3199,7 +3199,7 @@
             padding: 16px 20px;
             box-shadow: var(--glow);
             animation: slideInRight 0.4s ease-out;
-            z-index: 1000;
+            z-index: 21000;
             max-width: 300px;
         }
         
@@ -7879,7 +7879,7 @@
                                     ${this.renderBonuses(commander.bonuses)}
                                 </div>
                                 
-                                <div class="commander-count">Owned: '+count+'</div>
+                                <div class="commander-count">Owned: ${count}</div>
                                 
                                 <div class="commander-actions">
                                     <button class="commander-action-btn" onclick="window.game.commanderManager.assignToTarget('${commander.id}', ${commander.stars || 1}, 'planet')">
@@ -7893,11 +7893,11 @@
                                 ${count >= rarityInfo.stacksRequired ? `
                                     <button class="commander-action-btn" style="margin-top: 8px; background: linear-gradient(135deg, #ffd700, #ff9500);" 
                                         onclick="window.game.commanderManager.showStackModal('${commander.id}', ${commander.stars || 1})">
-                                        🌟 Upgrade ('+count+'/${rarityInfo.stacksRequired})
+                                        🌟 Upgrade (${count}/${rarityInfo.stacksRequired})
                                     </button>
                                 ` : `
                                     <div style="text-align: center; margin-top: 8px; font-size: 11px; color: var(--text-secondary);">
-                                        '+count+'/${rarityInfo.stacksRequired} for upgrade
+                                        ${count}/${rarityInfo.stacksRequired} for upgrade
                                     </div>
                                 `}
                             </div>
@@ -14239,6 +14239,17 @@ const SHIP_IMAGE_DATA = {
 
                 if (this.resources.credits < scaledCredits || this.resources.he3 < scaledHE3) {
                     this.showNotification(`⚠️ Need ₡${scaledCredits.toLocaleString()} and ⚡${scaledHE3.toLocaleString()} to scout!`);
+                    if (window.tutorialManager && window.tutorialManager.report) {
+                        window.tutorialManager.report('That click did not start a scan. You need ' + scaledCredits.toLocaleString() + ' credits and ' + scaledHE3.toLocaleString() + ' HE3.');
+                    }
+                    return;
+                }
+
+                if (this._tutorialScoutPending) {
+                    this.showNotification('🔭 Already scanning...');
+                    if (window.tutorialManager && window.tutorialManager.report) {
+                        window.tutorialManager.report('A scan is already running. The countdown on this window is the wait.');
+                    }
                     return;
                 }
 
@@ -14247,10 +14258,16 @@ const SHIP_IMAGE_DATA = {
                 this.updateResources();
 
                 this.showNotification(`🔭 Scouting... (${scoutingTime}s)`);
+                this._tutorialScoutPending = true;
+                if (window.tutorialManager && window.tutorialManager.reportScout) {
+                    window.tutorialManager.reportScout(scoutingTime);
+                }
 
                 setTimeout(() => {
-                    // Check for random space event (1% chance)
-                    if (this.checkSpaceEvent('scout')) return;
+                    this._tutorialScoutPending = false;
+                    // A space event must not swallow the planet while the tutorial is waiting on a scout.
+                    const tutorialNeedsScout = window.tutorialManager && window.tutorialManager.needs && window.tutorialManager.needs('scout');
+                    if (this.checkSpaceEvent('scout') && !tutorialNeedsScout) return;
 
                     const planet  = this.addRandomPlanet();
                     planet.scouted = true; // mark as player-discovered
@@ -15146,6 +15163,7 @@ const SHIP_IMAGE_DATA = {
                 }
                 
                 this.renderPlanets();
+                if (this.renderOwnedPlanets) this.renderOwnedPlanets();
                 this.renderBuildingPanel();
                 this.updateMap();
                 this.showNotification(`💥 ${planet.name} has been destroyed!`);
@@ -18810,7 +18828,7 @@ const SHIP_IMAGE_DATA = {
                     width: 100%;
                     height: 100%;
                     background: rgba(0, 0, 0, 0.95);
-                    z-index: 10002;
+                    z-index: 22000;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -18878,6 +18896,7 @@ const SHIP_IMAGE_DATA = {
                     </div>
                 `;
                 
+                modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
                 document.body.appendChild(modal);
             }
             
@@ -28347,8 +28366,8 @@ window.tutorialManager = (() => {
             id: 'scout',
             icon: '🔭',
             title: 'Scout a Planet',
-            body: `On the left, Planet Management opens on the <strong>Owned</strong> tab. Press <strong style="color:#00d9ff;">🔭 Scout New Planet</strong>.\n\nScouting is not free or instant. It spends credits and HE3 based on how many worlds are already on the map, then runs for up to 15 seconds. When the scan finishes, the new world is on the <strong>Available</strong> tab.\n\nNext unlocks only after a world is actually discovered.`,
-            hint: 'If a random space event interrupts the scan, press Scout New Planet again.',
+            body: `On the left, Planet Management opens on the <strong>Owned</strong> tab. Press the highlighted <strong style="color:#00d9ff;">🔭 Scout New Planet</strong> button.\n\nThe click spends credits and HE3, then scans for up to 15 seconds. This window counts down as soon as the scan starts. Next unlocks when a world is actually found, and that world is placed near one you already own so it shows on the Available tab.`,
+            hint: 'If the button cannot be afforded, the reason appears here. A second click during the countdown does not start another scan.',
             target: 'button[onclick="window.game.scoutNewPlanet()"]',
             position: 'right',
             waitFor: 'scout'
@@ -28357,8 +28376,8 @@ window.tutorialManager = (() => {
             id: 'colonize',
             icon: '🪐',
             title: 'Colonize It',
-            body: `Open the <strong>Available</strong> tab and press <strong style="color:#00d9ff;">🪐 Colonize</strong> on the world you just scouted.\n\nThe price is 500 credits + 100 per world you already own, and 100 HE3 + 20 per world. It is not a flat 5,000 credits. Next unlocks when the colony is yours.`,
-            hint: 'If the button says you cannot afford it, the notice shows the exact credits and HE3 still required.',
+            body: `Press the highlighted <strong style="color:#00d9ff;">🪐 Colonize</strong> button. That is the world you just scouted.\n\nRelic cards above it say Scout System. Those are not this step.\n\nThe price is 500 credits + 100 per world you already own, and 100 HE3 + 20 per world. Next unlocks when the colony is yours.`,
+            hint: 'The highlighted button is the one that counts. Clicking the Available tab by itself does not.',
             target: '#planetTabAvailable',
             position: 'right',
             waitFor: 'colonize'
@@ -28367,8 +28386,8 @@ window.tutorialManager = (() => {
             id: 'search',
             icon: '🔍',
             title: 'Search an Owned World',
-            body: `Go back to the <strong>Owned</strong> tab. On any planet you own, press <strong style="color:#00d9ff;">🔍 Search</strong>.\n\nA search costs <strong>1,000 credits</strong> and <strong>500 HE3</strong> and runs for 30 seconds. Starting it is enough — you do not have to wait for the timer to finish. The materials it finds are used later in Crafting.`,
-            hint: 'Searching a world that is already being searched does not count twice.',
+            body: `Press the highlighted <strong style="color:#00d9ff;">🔍 Search</strong> button on one of your worlds.\n\nA search costs <strong>1,000 credits</strong> and <strong>500 HE3</strong> and runs for 30 seconds. Starting it is enough. You do not have to wait for the timer.`,
+            hint: 'Clicking the Owned tab does not start a search. Use the highlighted Search button.',
             target: '#planetTabOwned',
             position: 'right',
             waitFor: 'planet_search'
@@ -28377,8 +28396,8 @@ window.tutorialManager = (() => {
             id: 'buildings',
             icon: '🏗️',
             title: 'Build a Structure',
-            body: `Click one of your owned planet cards. That selects it for construction. Then open the <strong>Buildings</strong> tab and press <strong>Build</strong>.\n\nYou cannot build until a planet is selected. A new empire can afford <strong>Missile Silo</strong> (10,000 credits, 5,000 metal, +50% defense) or <strong>Farm</strong> (10,000 credits, 7,000 metal, +15% food). Any successful build counts.`,
-            hint: 'If every Build button is disabled, go back to Owned and click a planet card first.',
+            body: `One of your worlds is already selected, and the Buildings tab is open. Press the highlighted <strong>Build</strong> button.\n\nMissile Silo is first: 10,000 credits and 5,000 metal, +50% defense. Farm is 10,000 credits and 7,000 metal, +15% food. Any successful build counts.`,
+            hint: 'A disabled Build button means that structure is too expensive. Choose a highlighted one that is enabled.',
             target: '#planetTabBuildings',
             position: 'right',
             waitFor: 'build_building'
@@ -28387,8 +28406,8 @@ window.tutorialManager = (() => {
             id: 'research',
             icon: '🔬',
             title: 'Research a Technology',
-            body: `Press the <strong style="color:#00d9ff;">Technology Tree</strong> button in the header and click <strong>Advanced Mining</strong>.\n\nIt costs 5,000 credits, 2,000 metal, and 50 Research, has no prerequisite, and gives <strong>+20% metal</strong>. It takes about 20 minutes to finish. Starting it is enough.\n\n<strong>Efficient Refining</strong> gives +25% HE3, not credits, and costs 60 Research — you will not have enough left after Advanced Mining.`,
-            hint: 'Click the Advanced Mining card itself. A message that requirements are not met means the click did not count.',
+            body: `The Technology Tree is open. Click the highlighted <strong>Advanced Mining</strong> card.\n\nIt costs 5,000 credits, 2,000 metal, and 50 Research, has no prerequisite, and gives <strong>+20% metal</strong>. It takes about 20 minutes to finish. Starting it is enough.\n\nEfficient Refining gives +25% HE3, not credits, and costs 60 Research.`,
+            hint: 'Click the glowing Advanced Mining card. Opening the tree by itself does not finish this step.',
             target: '[title="Technology Tree"]',
             position: 'below',
             waitFor: 'research'
@@ -28397,8 +28416,8 @@ window.tutorialManager = (() => {
             id: 'ships',
             icon: '🚀',
             title: 'Queue a Ship',
-            body: `In <strong>Ship Production</strong> on the right, open <strong>Build Ships</strong>. Drones and Scouts are already unlocked, and you already own drones.\n\nPress <strong>Build 1</strong> on a drone. Drones cost only a few credits and a little metal. The ship enters the build queue. You do not have to wait for the timer.`,
-            hint: 'Building a ship you cannot afford does not advance this step.',
+            body: `Press the highlighted <strong>Build 1</strong> button on a drone. Drones are already unlocked and cost only a few credits and a little metal.\n\nThe ship enters the build queue. You do not have to wait for it to finish.`,
+            hint: 'Clicking the Build Ships tab does not queue a ship. Use the highlighted Build button.',
             target: '#fleetTabBuildShips',
             position: 'left',
             waitFor: 'build_ship'
@@ -28427,8 +28446,8 @@ window.tutorialManager = (() => {
             id: 'assign',
             icon: '📌',
             title: 'Assign a Commander',
-            body: `On the Collection tab, press <strong>Assign to Planet</strong> on a commander, then click one of your worlds in the list.\n\n<strong>Assign to Fleet</strong> works the same way if you would rather attach them to the fleet you just named. The step completes when the assignment is confirmed.`,
-            hint: 'The Collection tab is the one that opens with the panel.',
+            body: `Press the highlighted <strong>Assign to Planet</strong> button, then click the highlighted world in the list that opens.\n\nAssign to Fleet works the same way if you would rather use the fleet you named. The step completes when the assignment is confirmed.`,
+            hint: 'Opening COMMANDERS again does not finish this step. Use Assign to Planet, then a world.',
             target: 'button[onclick*="commanderManager.openPanel()"]',
             position: 'below',
             waitFor: 'commander_assigned'
@@ -28519,26 +28538,36 @@ window.tutorialManager = (() => {
     // If they have, positionDialog() won't auto-reposition it.
     let dialogDragged = false;
 
-    function positionDialog(targetEl, position) {
-        // If the player has manually repositioned the dialog, respect their choice.
+    function rectsOverlap(a, b, pad) {
+        pad = pad || 8;
+        return !(a.right + pad < b.left || a.left - pad > b.right || a.bottom + pad < b.top || a.top - pad > b.bottom);
+    }
+
+    function positionDialog(targetEl) {
         if (dialogDragged) return;
-
         const dlg = el('tutorialDialog');
-
-        // Default: center over the galaxy map so it doesn't cover sidebars.
-        const mapEl = document.getElementById('galaxyMap') || document.getElementById('mapContainer') || document.getElementById('map');
-        if (mapEl) {
-            const mr = mapEl.getBoundingClientRect();
-            const dw = dlg.offsetWidth  || 420;
-            const dh = dlg.offsetHeight || 280;
-            dlg.style.transform = 'none';
-            dlg.style.left = Math.round(mr.left + (mr.width  - dw) / 2) + 'px';
-            dlg.style.top  = Math.round(mr.top  + (mr.height - dh) / 2) + 'px';
-        } else {
-            dlg.style.top  = '50%';
-            dlg.style.left = '50%';
-            dlg.style.transform = 'translate(-50%, -50%)';
+        dlg.style.transform = 'none';
+        const dw = dlg.offsetWidth || 420;
+        const dh = dlg.offsetHeight || 320;
+        const margin = 12;
+        const target = targetEl && targetEl.getBoundingClientRect ? targetEl.getBoundingClientRect() : null;
+        const spots = [
+            { left: Math.round((window.innerWidth - dw) / 2), top: window.innerHeight - dh - margin },
+            { left: window.innerWidth - dw - margin, top: margin + 64 },
+            { left: margin, top: window.innerHeight - dh - margin },
+            { left: window.innerWidth - dw - margin, top: window.innerHeight - dh - margin },
+            { left: margin, top: margin + 64 }
+        ];
+        let placed = spots[0];
+        if (target && target.width > 2 && target.height > 2) {
+            for (let i = 0; i < spots.length; i++) {
+                const c = spots[i];
+                const box = { left: c.left, right: c.left + dw, top: c.top, bottom: c.top + dh };
+                if (!rectsOverlap(box, target, 16)) { placed = c; break; }
+            }
         }
+        dlg.style.left = Math.round(Math.max(margin, Math.min(placed.left, window.innerWidth - dw - margin))) + 'px';
+        dlg.style.top = Math.round(Math.max(margin, Math.min(placed.top, window.innerHeight - dh - margin))) + 'px';
     }
 
     // ── Drag-to-reposition logic ───────────────────────────────────────
@@ -28705,14 +28734,9 @@ window.tutorialManager = (() => {
         }
 
         prepareStep(step);
-
-        // Spotlight
-        const targetEl = step.target ? qs(step.target) : null;
-        spotlightTarget(step.target || null);
-
-        // Position dialog
+        lastAimed = null;
+        aimSpotlight();
         el('tutorialDialog').style.display = 'block';
-        setTimeout(() => positionDialog(targetEl, step.position), 50);
     }
 
     // ── Public API ─────────────────────────────────────────────────────
@@ -28727,6 +28751,8 @@ window.tutorialManager = (() => {
         ensureTutorialResources();
         grantStarterCommanders();
         renderStep(0);
+        if (aimTimer) clearInterval(aimTimer);
+        aimTimer = setInterval(() => { if (active) aimSpotlight(); }, 700);
     }
 
     function next() {
@@ -28791,6 +28817,8 @@ window.tutorialManager = (() => {
 
     function finish() {
         active = false;
+        clearScoutTicker();
+        if (aimTimer) { clearInterval(aimTimer); aimTimer = null; }
         el('tutorialOverlay').style.display  = 'none';
         el('tutorialSpotlight').style.display = 'none';
         el('tutorialDialog').style.display    = 'none';
@@ -28801,14 +28829,59 @@ window.tutorialManager = (() => {
     }
 
     // Mark an action as completed and unlock Next if we're on that step
+    function setStatus(text) {
+        const hintEl = el('tutStepHint');
+        if (!hintEl) return;
+        if (!text) { hintEl.style.display = 'none'; return; }
+        hintEl.textContent = '💡 ' + text;
+        hintEl.style.display = 'block';
+    }
+
+    let scoutTicker = null;
+    function clearScoutTicker() {
+        if (scoutTicker) { clearInterval(scoutTicker); scoutTicker = null; }
+    }
+
+    function report(message) {
+        if (!active) return;
+        setStatus(message);
+    }
+
+    function reportScout(seconds) {
+        if (!active) return;
+        clearScoutTicker();
+        let left = seconds;
+        const tick = () => {
+            const step = STEPS[currentStep];
+            const btn = el('tutNextBtn');
+            if (!step || step.waitFor !== 'scout' || completedActions.scout) {
+                clearScoutTicker();
+                return;
+            }
+            if (btn) btn.textContent = 'Scanning ' + left + 's';
+            setStatus('Scan started. A world appears in ' + left + ' seconds. Next unlocks when it does.');
+            left -= 1;
+            if (left < 0) clearScoutTicker();
+        };
+        tick();
+        scoutTicker = setInterval(tick, 1000);
+    }
+
+    function needs(actionId) {
+        const step = STEPS[currentStep];
+        return !!(active && step && step.waitFor === actionId && !completedActions[actionId]);
+    }
+
     function completeAction(actionId) {
         completedActions[actionId] = true;
+        if (actionId === 'scout') clearScoutTicker();
         const step = STEPS[currentStep];
         if (active && step && step.waitFor === actionId) {
             const nextBtn = el('tutNextBtn');
             nextBtn.textContent = 'Next →';
             nextBtn.style.opacity = '1';
             nextBtn.style.cursor = 'pointer';
+            setStatus('Done. Press Next.');
             if (window.game) window.game.showNotification('✅ Tutorial step complete! Click Next to continue.');
         }
     }
@@ -28847,12 +28920,124 @@ window.tutorialManager = (() => {
         if (tab === 'fleet' && g.renderShips) g.renderShips();
     }
 
+    function firstButton(selector, test) {
+        const nodes = document.querySelectorAll(selector);
+        for (let i = 0; i < nodes.length; i++) {
+            if (test(nodes[i])) return nodes[i];
+        }
+        return null;
+    }
+
+    function resolveTarget(step) {
+        if (!step) return null;
+        if (step.id === 'colonize') {
+            const btn = firstButton('#availablePlanetList button', b => b.textContent.indexOf('Colonize') !== -1 && b.textContent.indexOf('Relic') === -1);
+            if (btn) return btn;
+        }
+        if (step.id === 'search') {
+            const btn = firstButton('#ownedPlanetList button', b => {
+                if (b.textContent.indexOf('Search') === -1 || b.textContent.indexOf('All') !== -1) return false;
+                const match = (b.getAttribute('onclick') || '').match(/searchForArtifact\((\d+)\)/);
+                if (!match || !window.game || !window.game.selectedRace) return true;
+                const planet = window.game.planets.find(p => String(p.id) === match[1]);
+                return !!(planet && planet.owner === window.game.selectedRace.name);
+            });
+            if (btn) return btn;
+        }
+        if (step.id === 'buildings') {
+            const btn = firstButton('.build-building-btn', b => b.textContent.trim() === 'Build' && !b.disabled);
+            if (btn) return btn;
+        }
+        if (step.id === 'ships') {
+            const btn = firstButton('#shipBuildList .build-btn', b => b.textContent.indexOf('Build') !== -1 && !b.disabled);
+            if (btn) return btn;
+        }
+        if (step.id === 'upgrade') {
+            const btn = firstButton('#commanderPanel button', b => b.textContent.indexOf('Upgrade') !== -1);
+            if (btn) return btn;
+        }
+        if (step.id === 'research') {
+            const modal = document.getElementById('techTreeModal');
+            if (modal && modal.style.display === 'block') {
+                const node = firstButton('.tech-node', n => n.textContent.indexOf('Advanced Mining') !== -1);
+                if (node) return node;
+            }
+        }
+        if (step.id === 'assign') {
+            const modal = document.getElementById('assignmentModal');
+            if (modal && modal.style.display !== 'none') {
+                const item = modal.querySelector('.assignment-item');
+                if (item) return item;
+            }
+            const btn = firstButton('.commander-action-btn', b => b.textContent.indexOf('Assign to Planet') !== -1);
+            if (btn) return btn;
+        }
+        return step.target ? qs(step.target) : null;
+    }
+
+    function revealTarget(target) {
+        if (!target || !target.parentElement) return;
+        let node = target.parentElement;
+        while (node && node !== document.body) {
+            const style = getComputedStyle(node);
+            const oy = style.overflowY;
+            if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && node.scrollHeight > node.clientHeight + 8) {
+                const er = target.getBoundingClientRect();
+                const nr = node.getBoundingClientRect();
+                node.scrollTop += (er.top + er.height / 2) - (nr.top + nr.height / 2);
+            }
+            node = node.parentElement;
+        }
+    }
+
+    let lastAimed = null;
+    function aimSpotlight() {
+        const step = STEPS[currentStep];
+        if (!active || !step) return;
+        const targetEl = resolveTarget(step);
+        if (targetEl !== lastAimed) {
+            lastAimed = targetEl;
+            revealTarget(targetEl);
+        }
+        spotlightTarget(targetEl || step.target || null);
+        positionDialog(targetEl);
+    }
+
+    let aimTimer = null;
+    function dismissBlockingUi(step) {
+        const g = window.game;
+        const tech = document.getElementById('techTreeModal');
+        if (tech && step.id !== 'research') tech.style.display = 'none';
+        const keepCommanders = step.id === 'commanders' || step.id === 'assign' || step.id === 'upgrade';
+        if (!keepCommanders && g && g.commanderManager && g.commanderManager.closePanel) {
+            try { g.commanderManager.closePanel(); } catch (e) {}
+        }
+        const assignment = document.getElementById('assignmentModal');
+        if (assignment && step.id !== 'assign') assignment.style.display = 'none';
+        const fleetPick = document.getElementById('fleetShipSelectorModal');
+        if (fleetPick && step.id !== 'fleet') fleetPick.remove();
+    }
+
     function prepareStep(step) {
         const g = window.game;
         if (!g || !step) return;
-        const planetTab = { scout: 'owned', colonize: 'available', search: 'owned', buildings: 'owned', enemy: 'enemy', bounties: 'owned' }[step.id];
+        dismissBlockingUi(step);
+        const planetTab = { scout: 'owned', colonize: 'available', search: 'owned', buildings: 'buildings', enemy: 'enemy', bounties: 'owned' }[step.id];
         if (planetTab && g.switchPlanetTab) {
             try { g.switchPlanetTab(planetTab); } catch (e) {}
+        }
+        if (step.id === 'buildings') {
+            if (!g.selectedPlanetForBuilding && g.selectedRace) {
+                const owned = g.planets.find(p => p.owner === g.selectedRace.name);
+                if (owned && g.selectPlanetForBuilding) g.selectPlanetForBuilding(owned);
+            }
+            try { g.switchPlanetTab('buildings'); } catch (e) {}
+        }
+        if (step.id === 'research' && g.openTechTree) {
+            try { g.openTechTree(); } catch (e) {}
+        }
+        if ((step.id === 'assign' || step.id === 'upgrade') && g.commanderManager && g.commanderManager.openPanel) {
+            try { g.commanderManager.openPanel(); } catch (e) {}
         }
         if (step.id === 'ships') showBuildTab('build');
         if (step.id === 'fleet') showBuildTab('fleet');
@@ -28904,7 +29089,7 @@ window.tutorialManager = (() => {
         }, 600);
     }
 
-    return { start, next, prev, skip, finish, maybeAutoStart, completeAction };
+    return { start, next, prev, skip, finish, maybeAutoStart, completeAction, report, reportScout, needs };
 
 })();
 
