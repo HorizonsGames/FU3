@@ -5553,7 +5553,7 @@
                 class="chat-input" 
                 id="chatInput" 
                 placeholder="Type a message..."
-                onkeypress="if(event.key === 'Enter') chatManager.sendMessage()"
+                onkeypress="if(event.key === 'Enter') window.chatManager.sendMessage()"
             >
             <button class="chat-send-btn" onclick="window.chatManager.sendMessage()">➤</button>
         </div>
@@ -8182,7 +8182,7 @@
                                 <div class="assignment-item assigned">
                                     <div>
                                         <div style="font-weight: 700; color: var(--text-primary);">${commander.name} ${'⭐'.repeat(commander.stars || 1)}</div>
-                                        <div style="font-size: 13px; color: var(--text-secondary);">Assigned to '+fleet.name+'</div>
+                                        <div style="font-size: 13px; color: var(--text-secondary);">Assigned to ${fleet.name}</div>
                                     </div>
                                     <button class="commander-action-btn secondary" 
                                         onclick="window.game.commanderManager.unassignCommander('fleet', '${fleetId}')">
@@ -8713,7 +8713,7 @@
             
             openChat() {
                 document.getElementById('chatWindow').style.display = 'flex';
-                this.renderCurrentTab();
+                this.switchTab('global');
                 this.unreadCount = 0;
             }
             
@@ -9166,16 +9166,27 @@
                 const input = document.getElementById('chatInput');
                 const text = input.value.trim();
                 
-                if (!text || typeof auth === 'undefined' || !auth.currentSession) return;
-                
-                const player = auth.db.getPlayerBySession(auth.currentSession);
+                if (!text) return;
+
+                let player = null;
+                if (typeof auth !== 'undefined' && auth.currentSession && auth.db) {
+                    player = auth.db.getPlayerBySession(auth.currentSession);
+                }
+                if (!player && window.game && window.game.playerData) {
+                    const pd = window.game.playerData;
+                    player = {
+                        username: pd.username || 'Commander',
+                        race: (pd.race && pd.race.name) ? pd.race.name : (pd.race || window.game.selectedRace?.name || 'Unknown')
+                    };
+                }
                 if (!player) return;
+                const raceName = typeof player.race === 'string' ? player.race : (player.race?.name || 'Unknown');
                 
                 const message = {
                     id: Date.now() + Math.random(),
                     username: player.username,
-                    race: player.race,
-                    raceColor: RACES.find(r => r.name === player.race)?.color || '#00d9ff',
+                    race: raceName,
+                    raceColor: RACES.find(r => r.name === raceName)?.color || '#00d9ff',
                     text: text,
                     timestamp: Date.now(),
                     type: 'user'
@@ -9558,19 +9569,20 @@
                 // AI Gameplay Behavior - runs every 30 seconds
                 this._behaviorInterval = setInterval(() => {
                     this.updateBotBehavior();
-                }, 30000);
+                }, 12000);
 
                 // Dedicated live-player attack interval — random between ~9 min and ~1h 49min
                 // Frequency reduced by 45% from original (5 min–1 hr window)
                 const scheduleBotAttack = () => {
                     // Extra randomisation: roll a second gate so attacks are not uniform
-                    const minMs = 10 * 60 * 1000;   // 10 min minimum gap
-                    const maxMs = 120 * 60 * 1000;  // 2 hour maximum gap
+                    const minMs = 2 * 60 * 1000;    // 2 min minimum gap
+                    const maxMs = 18 * 60 * 1000;   // 18 min maximum gap
                     const delay = minMs + Math.random() * (maxMs - minMs);
                     setTimeout(() => {
                         // Only attack if player has planets and bots exist
-                        if (typeof game === 'undefined' || !game.planets) { scheduleBotAttack(); return; }
-                        const playerPlanets = game.planets.filter(p => p.owner === game.selectedRace?.name);
+                        const game = window.game;
+                        if (!game || !game.planets) { scheduleBotAttack(); return; }
+                        const playerPlanets = game.planets.filter(p => p.owner === game.selectedRace?.name || p.owner === game.playerData?.username);
                         if (playerPlanets.length === 0) { scheduleBotAttack(); return; }
 
                         // Respect post-repel cooldown — don't attack immediately after a successful defense
@@ -9598,7 +9610,8 @@
             
             updateBotBehavior() {
                 if (!this._botGameStates) this._botGameStates = new Map();
-                if (typeof game === 'undefined' || !game.planets) return;
+                const game = window.game;
+                if (!game || !game.planets) return;
 
                 this.bots.forEach(bot => {
                     let gs = this._botGameStates.get(bot.username);
@@ -9608,7 +9621,8 @@
                     }
 
                     const dm = { 'Easy':0.3, 'Medium':0.6, 'Hard':0.8, 'Elite':0.95, 'Legendary':1.0 }[bot.difficulty] || 0.5;
-                    const actChance = 0.15 + dm * 0.65;
+                    // Bots act most ticks so they expand/build like live players
+                    const actChance = 0.55 + dm * 0.4;
                     if (Math.random() > actChance) return;
 
                     // ── 1. Sync owned planets from game world ─────────────────
@@ -9643,6 +9657,8 @@
 
             // Sync bot's planet list with game.planets (picks up captures / losses)
             _syncBotPlanets(bot, gs) {
+                const game = window.game;
+                if (!game || !game.planets) { gs.worldPlanets = []; return; }
                 // Pull all game.planets actually owned by this bot
                 const worldPlanets = game.planets.filter(p => p.owner === bot.username);
                 worldPlanets.forEach(p => {
@@ -9666,10 +9682,10 @@
                     return;
                 }
                 planets.forEach(p => {
-                    const mineLevel   = p.buildings['Mining Complex']  || 0;
-                    const farmLevel   = p.buildings['Hydroponic Farm']  || 0;
-                    const creditLevel = p.buildings['Trade Hub']        || 0;
-                    const he3Level    = p.buildings['HE3 Extractor']    || 0;
+                    const mineLevel   = p.buildings['Mining Outpost']  || 0;
+                    const farmLevel   = p.buildings['Farm']  || 0;
+                    const creditLevel = p.buildings['City Dome']        || 0;
+                    const he3Level    = p.buildings['Research Outpost'] || 0;
 
                     gs.resources.metal   += Math.floor(((p.resources?.metal || 2000) / 60) * (1 + mineLevel   * 0.2) * dm);
                     gs.resources.he3     += Math.floor(((p.resources?.he3   || 1000) / 60) * (1 + he3Level    * 0.2) * dm);
@@ -9688,18 +9704,14 @@
 
                 // Priority order mirrors smart human play
                 const buildPriority = [
-                    // Defense first for hard+ bots
-                    { name: 'Missile Silo',      cost: { credits: 5000,  metal: 2000 }, maxLevel: 10, defense: true },
-                    { name: 'Space Station',     cost: { credits: 15000, metal: 5000 }, maxLevel: 5,  defense: true },
-                    // Economy
-                    { name: 'Mining Complex',    cost: { credits: 3000,  metal: 1000 }, maxLevel: 10, defense: false },
-                    { name: 'Hydroponic Farm',   cost: { credits: 2000,  metal: 500  }, maxLevel: 10, defense: false },
-                    { name: 'Trade Hub',         cost: { credits: 4000,  metal: 1500 }, maxLevel: 8,  defense: false },
-                    { name: 'HE3 Extractor',     cost: { credits: 3500,  metal: 1200 }, maxLevel: 8,  defense: false },
-                    // Population / pop cap
-                    { name: 'City Dome',         cost: { credits: 6000,  metal: 2500 }, maxLevel: 5,  defense: false },
-                    { name: 'Barracks',          cost: { credits: 5000,  metal: 2000 }, maxLevel: 5,  defense: true },
-                    { name: 'Shipyard',          cost: { credits: 8000,  metal: 3000 }, maxLevel: 5,  defense: false },
+                    // Real BUILDINGS keys — bots must construct what the combat/defense code recognizes
+                    { name: 'Missile Silo',      cost: { credits: 10000, metal: 5000 }, maxLevel: 5, defense: true },
+                    { name: 'Space Station',     cost: { credits: 25000, metal: 15000 }, maxLevel: 3, defense: true },
+                    { name: 'Mining Outpost',    cost: { credits: 12000, metal: 10000 }, maxLevel: 1, defense: false },
+                    { name: 'Farm',              cost: { credits: 10000, metal: 7000 }, maxLevel: 1, defense: false },
+                    { name: 'Research Outpost',  cost: { credits: 15000, metal: 8000 }, maxLevel: 1, defense: false },
+                    { name: 'Science Lab',       cost: { credits: 35000, metal: 20000 }, maxLevel: 3, defense: false },
+                    { name: 'City Dome',         cost: { credits: 35000, metal: 20000 }, maxLevel: 3, defense: false },
                 ];
 
                 // Hard+ bots prioritize defense; lower difficulties prioritize economy
@@ -9841,19 +9853,23 @@
             }
 
             botClaimPlanet(bot, gs) {
-                if (typeof game === 'undefined' || !game.planets) return;
+                const game = window.game;
+                if (!game || !game.planets) return;
                 // Never steal planets the player has scouted, and never touch relic worlds
                 const unclaimed = game.planets.filter(p => !p.owner && !p.scouted && !p.isRelicWorld);
                 if (unclaimed.length === 0 || Math.random() > 0.4) return;
                 const planet = unclaimed[Math.floor(Math.random() * unclaimed.length)];
                 planet.owner           = bot.username;
-                planet.buildings       = { 'Mining Complex': 1 };
+                planet.ownerUsername   = bot.username;
+                planet.buildings       = { 'Mining Outpost': 1, 'Missile Silo': 1 };
                 planet.population      = Math.floor(500 + Math.random() * 2000);
                 planet.fleets          = [];
                 planet.botGarrison     = {};
                 planet.botGarrisonPower = 0;
                 bot.stats.planetsColonized++;
                 if (gs.worldPlanets) gs.worldPlanets.push(planet);
+                if (game.renderEnemyPlanets) game.renderEnemyPlanets();
+                if (game.updateMap) game.updateMap();
             }
 
             botCreateCluster(bot, gs) {
@@ -9869,13 +9885,20 @@
                     tp += p.population       || 0;
                 });
                 if (!gs.clusters) gs.clusters = [];
-                gs.clusters.push({
+                const cluster = {
                     id: Date.now() + Math.random(),
                     name: `${bot.race} Sector ${gs.clusters.length + 1}`,
                     tier: 1, planetCount: 5, owner: bot.username,
                     resources: { metal: tm, he3: th, food: tf },
-                    population: tp
-                });
+                    population: tp,
+                    inCluster: false,
+                    buildings: { 'Mining Outpost': 1 }
+                };
+                gs.clusters.push(cluster);
+                if (window.game && Array.isArray(window.game.clusters)) {
+                    window.game.clusters.push(cluster);
+                    if (window.game.renderEnemyPlanets) window.game.renderEnemyPlanets();
+                }
             }
             
             stopBotActivities() {
@@ -9888,11 +9911,12 @@
 
             botAttackPlayer(bot, gameState) {
                 // Only attack if the player's game is loaded
-                if (typeof game === 'undefined' || !game.planets) return;
+                const game = window.game;
+                if (!game || !game.planets) return;
 
-                // Power rating gate — NPCs only attack players with power rating > 500
+                // Soft power gate — allow early pressure once the player has any combat presence
                 if (typeof game.calculatePlayerPowerRating === 'function') game.calculatePlayerPowerRating();
-                if ((game.playerPowerRating || 0) <= 500) return;
+                if ((game.playerPowerRating || 0) < 50) return;
 
                 // Count bot's total fleet strength
                 let totalShips = 0;
@@ -9906,7 +9930,7 @@
                 if (totalShips < 10) return;
 
                 // Pick a player-owned planet to attack
-                const playerPlanets = game.planets.filter(p => p.owner === game.selectedRace.name);
+                const playerPlanets = game.planets.filter(p => p.owner === game.selectedRace?.name || p.owner === game.playerData?.username);
                 if (playerPlanets.length === 0) return;
 
                 const target = playerPlanets[Math.floor(Math.random() * playerPlanets.length)];
@@ -13092,7 +13116,7 @@ const SHIP_IMAGE_DATA = {
                     planets: {}, // planetId: commanderId
                     fleets: {}   // fleetId: commanderId
                 };
-                this.horizonCoins = 5000; // Starting test coins
+                this.horizonCoins = 500; // Starting Horizon Coins
                 
                 // Interval IDs for clearing
                 this.resourceInterval = null;
@@ -13130,15 +13154,16 @@ const SHIP_IMAGE_DATA = {
                     const accountTypeBadge = document.getElementById('accountTypeBadge');
                     const adminPanelOption = document.getElementById('adminPanelOption');
                     
-                    if (accountType === 'Admin' || accountType === 'CSR') {
-                        accountTypeBadge.textContent = accountType;
+                    const isMisterAdmin = (playerData.username || '').toLowerCase() === 'mister';
+                    if (isMisterAdmin) {
+                        accountTypeBadge.textContent = accountType === 'Player' ? 'Admin' : accountType;
                         accountTypeBadge.style.display = 'inline-block';
                         adminPanelOption.style.display = 'flex';
-                    } else if (accountType === 'Benefactor') {
+                    } else if (accountType === 'CSR' || accountType === 'Benefactor') {
                         accountTypeBadge.textContent = accountType;
                         accountTypeBadge.style.display = 'inline-block';
-                        accountTypeBadge.style.background = 'var(--accent-secondary)';
-                        adminPanelOption.style.display = 'flex'; // Benefactors get Admin Panel too
+                        if (accountType === 'Benefactor') accountTypeBadge.style.background = 'var(--accent-secondary)';
+                        adminPanelOption.style.display = 'none';
                     } else {
                         accountTypeBadge.style.display = 'none';
                         adminPanelOption.style.display = 'none';
@@ -13480,6 +13505,13 @@ const SHIP_IMAGE_DATA = {
                     // Resource generation
                     console.log('⚙️ Starting resource generation interval');
                     this.resourceInterval = setInterval(() => this.generateResources(), 1000);
+                    if (this._resourceWatchdog) clearInterval(this._resourceWatchdog);
+                    this._resourceWatchdog = setInterval(() => {
+                        if (!this.resourceInterval) {
+                            console.warn('⚙️ Resource interval missing — restarting');
+                            this.resourceInterval = setInterval(() => this.generateResources(), 1000);
+                        }
+                    }, 15000);
                     
                     // Research progress
                     console.log('⚙️ Starting research update interval');
@@ -14574,7 +14606,7 @@ const SHIP_IMAGE_DATA = {
                                  style="margin-bottom: 8px; padding: 10px; background: var(--bg-tertiary); border: 2px solid ${color}; border-radius: 6px; cursor: pointer; transition: all 0.2s; ${viralStyle}">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                     <div style="font-weight: 700; font-size: 12px; color: ${color};">
-                                        ${'⭐'.repeat(cluster.tier)} '+cluster.name+'
+                                        ${'⭐'.repeat(cluster.tier)} ${cluster.name}
                                     </div>
                                     <div style="font-size: 9px; padding: 2px 6px; background: rgba(157, 74, 255, 0.2); border-radius: 3px; color: ${color};">
                                         Tier ${cluster.tier}
@@ -14590,11 +14622,15 @@ const SHIP_IMAGE_DATA = {
                                     <div>👥 ${totalPopulation.toLocaleString()}</div>
                                 </div>
                                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-top: 6px;">
-                                    <button onclick="event.stopPropagation(); game.renameCluster(${cluster.id})" 
+                                    <button onclick="event.stopPropagation(); window.game.renameCluster(${cluster.id})" 
                                         style="padding: 3px; background: rgba(0, 217, 255, 0.1); border: 1px solid var(--accent-primary); border-radius: 3px; color: var(--accent-primary); font-size: 9px; cursor: pointer;">
                                         ✏️ Rename
                                     </button>
-                                    <button onclick="event.stopPropagation(); game.searchForArtifactCluster(${cluster.id})" 
+                                    <button onclick="event.stopPropagation(); window.game.specializeCluster(${cluster.id})" 
+                                        style="padding: 3px; background: rgba(0, 255, 136, 0.1); border: 1px solid var(--accent-secondary); border-radius: 3px; color: var(--accent-secondary); font-size: 9px; cursor: pointer;">
+                                        ⚗️ Specialize
+                                    </button>
+                                    <button onclick="event.stopPropagation(); window.game.searchForArtifactCluster(${cluster.id})" 
                                         style="padding: 3px; background: rgba(255, 215, 0, 0.1); border: 1px solid gold; border-radius: 3px; color: gold; font-size: 9px; cursor: pointer;">
                                         🔍 Search
                                     </button>
@@ -14848,11 +14884,15 @@ const SHIP_IMAGE_DATA = {
                     } else {
                         button = `
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: 4px;">
-                                <button onclick="event.stopPropagation(); game.renamePlanet(${planet.id})" 
+                                <button onclick="event.stopPropagation(); window.game.renamePlanet(${planet.id})" 
                                     style="padding: 3px; background: rgba(0, 217, 255, 0.1); border: 1px solid var(--accent-primary); border-radius: 3px; color: var(--accent-primary); font-size: 9px; cursor: pointer;">
                                     ✏️ Rename
                                 </button>
-                                <button onclick="event.stopPropagation(); game.searchForArtifact(${planet.id})" 
+                                <button onclick="event.stopPropagation(); window.game.specializePlanet(${planet.id})" 
+                                    style="padding: 3px; background: rgba(0, 255, 136, 0.1); border: 1px solid var(--accent-secondary); border-radius: 3px; color: var(--accent-secondary); font-size: 9px; cursor: pointer;">
+                                    ⚗️ Specialize
+                                </button>
+                                <button onclick="event.stopPropagation(); window.game.searchForArtifact(${planet.id})" 
                                     style="padding: 3px; background: rgba(255, 215, 0, 0.1); border: 1px solid gold; border-radius: 3px; color: gold; font-size: 9px; cursor: pointer; font-weight: 700;">
                                     🔍 Search
                                 </button>
@@ -15013,7 +15053,7 @@ const SHIP_IMAGE_DATA = {
                 
                 // Same logic as planet search but for cluster
                 if (this.artifactSearches[`cluster_${clusterId}`]) {
-                    this.showNotification(`🔍 Already searching '+cluster.name+'...`);
+                    this.showNotification(`🔍 Already searching ${cluster.name}...`);
                     return;
                 }
                 
@@ -15036,7 +15076,7 @@ const SHIP_IMAGE_DATA = {
                     name: cluster.name
                 };
                 
-                this.showNotification(`🔍 Searching '+cluster.name+' for artifacts... (60s)`);
+                this.showNotification(`🔍 Searching ${cluster.name} for artifacts... (60s)`);
                 
                 const searchInterval = setInterval(() => {
                     const search = this.artifactSearches[`cluster_${clusterId}`];
@@ -15055,67 +15095,18 @@ const SHIP_IMAGE_DATA = {
                         const tierDropBonus = { 1: 1.10, 2: 1.20, 3: 1.45, 4: 1.60, 5: 1.75 };
                         const tierBoost = tierDropBonus[cluster.tier] || 1.0;
 
-                        // Base chance: 1:1000 per tier, then multiplied by tier bonus
-                        const chance = (cluster.tier / 1000) * tierBoost;
-                        const found = Math.random() < chance;
-
-                        if (found) {
-                            // Clusters drop full crafting material pool, scaled by tier bonus
-                            const roll = Math.random();
-                            const craftingBonus = 1.875 * tierBoost; // base crafting bonus × tier multiplier
-                            const globalDropBoost = 1.5 * tierBoost;
-                            let foundArtifact = null;
-
-                            if (roll < ((1 / ARTIFACTS.ancientAudioDisc.rarity) * globalDropBoost)) {
-                                foundArtifact = ARTIFACTS.ancientAudioDisc;
-                            } else if (roll < ((1 / ARTIFACTS.fragment.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.fragment;
-                            } else if (roll < ((1 / ARTIFACTS.ancientPowerSupply.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.ancientPowerSupply;
-                            } else if (roll < ((1 / ARTIFACTS.platinum.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.platinum;
-                            } else if (roll < ((1 / ARTIFACTS.carbon.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.carbon;
-                            } else if (roll < ((1 / ARTIFACTS.webbing.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.webbing;
-                            } else if (roll < ((1 / ARTIFACTS.liquidAluminum.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.liquidAluminum;
-                            } else if (roll < ((1 / ARTIFACTS.dataCrystal.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.dataCrystal;
-                            } else if (roll < ((1 / ARTIFACTS.primordialOoze.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.primordialOoze;
-                            } else if (roll < ((1 / ARTIFACTS.basiliskVenom.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.basiliskVenom;
-                            } else if (roll < ((1 / ARTIFACTS.seaUrchinPoison.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.seaUrchinPoison;
-                            } else if (roll < ((1 / ARTIFACTS.psychedelicMushrooms.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.psychedelicMushrooms;
-                            } else if (typeof ARTIFACTS.deathLily !== 'undefined' && roll < ((1 / ARTIFACTS.deathLily.rarity) * craftingBonus)) {
-                                foundArtifact = ARTIFACTS.deathLily;
-                            }
-
-                            if (foundArtifact) {
-                                // Add to inventory via existing handler
-                                if (typeof this.addArtifactToInventory === 'function') {
-                                    this.addArtifactToInventory(foundArtifact);
-                                } else {
-                                    if (!this.inventory) this.inventory = [];
-                                    this.inventory.push({ artifactId: foundArtifact.id, name: foundArtifact.name, foundAt: new Date().toISOString(), source: cluster.name });
-                                }
-                                const tierLabel = ['','T1','T2','T3','T4','T5'][cluster.tier] || '';
-                                this.showNotification(`✨ [${tierLabel} CLUSTER] Found: ${foundArtifact.name} in ${cluster.name}! (${tierBoost.toFixed(2)}× drop bonus)`);
-                            } else {
-                                // Generic ancient artifact (no specific crafting match)
-                                if (!this.artifacts) this.artifacts = [];
-                                this.artifacts.push({ id: Date.now(), clusterName: cluster.name, foundAt: new Date().toISOString() });
-                                this.showNotification(`✨ ANCIENT ARTIFACT FOUND in ${cluster.name}! (${this.artifacts.length}/3 for Ultimate Weapon)`);
-                                if (this.artifacts.length >= 3) this.showNotification('🔥 You can now research the ULTIMATE WEAPON!');
-                            }
+                        const craftingBonus = 1.875 * 3.5 * tierBoost;
+                        const globalDropBoost = 1.5 * 3.5 * tierBoost;
+                        const foundArtifact = this._rollSearchArtifact(1.0, craftingBonus, globalDropBoost);
+                        const tierLabel = ['','T1','T2','T3','T4','T5'][cluster.tier] || '';
+                        if (foundArtifact) {
+                            this.processArtifactFind(foundArtifact, cluster.name);
+                            this.showNotification(`✨ [${tierLabel} CLUSTER] Found: ${foundArtifact.name} in ${cluster.name}! (${tierBoost.toFixed(2)}× drop bonus)`);
                         } else {
-                            // Nothing found this search
-                            const tierLabel = ['','T1','T2','T3','T4','T5'][cluster.tier] || '';
                             this.showNotification(`❌ [${tierLabel}] No artifact found in ${cluster.name}. Search again to try your luck!`);
                         }
+                        this.renderOwnedPlanets();
+                        this.saveGameState();
                     }
                 }, 1000);
             }
@@ -15143,7 +15134,7 @@ const SHIP_IMAGE_DATA = {
                 }
                 
                 this.renderOwnedPlanets();
-                this.showNotification(`Cluster '+cluster.name+' deleted!`);
+                this.showNotification(`Cluster ${cluster.name} deleted!`);
             }
             
             destroyPlanet(planetId) {
@@ -18674,55 +18665,8 @@ const SHIP_IMAGE_DATA = {
                         const craftingBonus = 1.875 * 3.5;    // 6.5625 — crafting material drop weight
                         const globalDropBoost = 1.5   * 3.5;  // 5.25   — ancient artifact drop weight
                         
-                        // Check for each artifact type with their specific probabilities
-                        let foundArtifact = null;
-                        const roll = Math.random();
-                        
-                        // Check crafting materials (5% and below)
-                        // Ancient Artifact Fragment (0.067% - rarest crafting material)
-                        if (roll < ((1 / ARTIFACTS.ancientAudioDisc.rarity) * artifactBonus * globalDropBoost)) {
-                            foundArtifact = ARTIFACTS.ancientAudioDisc;
-                        } else if (roll < ((1 / ARTIFACTS.fragment.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.fragment;
-                        // Ancient Power Supply (1.5%)
-                        } else if (roll < ((1 / ARTIFACTS.ancientPowerSupply.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.ancientPowerSupply;
-                        // Platinum (4%)
-                        } else if (roll < ((1 / ARTIFACTS.platinum.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.platinum;
-                        // All 5% materials
-                        } else if (roll < ((1 / ARTIFACTS.carbon.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.carbon;
-                        } else if (roll < ((1 / ARTIFACTS.webbing.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.webbing;
-                        } else if (roll < ((1 / ARTIFACTS.liquidAluminum.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.liquidAluminum;
-                        } else if (roll < ((1 / ARTIFACTS.dataCrystal.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.dataCrystal;
-                        } else if (roll < ((1 / ARTIFACTS.primordialOoze.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.primordialOoze;
-                        } else if (roll < ((1 / ARTIFACTS.basiliskVenom.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.basiliskVenom;
-                        } else if (roll < ((1 / ARTIFACTS.seaUrchinPoison.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.seaUrchinPoison;
-                        } else if (roll < ((1 / ARTIFACTS.psychedelicMushrooms.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.psychedelicMushrooms;
-                        } else if (roll < ((1 / ARTIFACTS.deathLily.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.deathLily;
-                        } else if (roll < ((1 / ARTIFACTS.gold.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.gold;
-                        } else if (roll < ((1 / ARTIFACTS.mercury.rarity) * artifactBonus * craftingBonus)) {
-                            foundArtifact = ARTIFACTS.mercury;
-                        // Then check ancient artifacts (with planet bonus + global boost applied)
-                        } else if (roll < ((1 / ARTIFACTS.flora.rarity) * artifactBonus * globalDropBoost)) {
-                            foundArtifact = ARTIFACTS.flora;
-                        } else if (roll < ((1 / ARTIFACTS.lab.rarity) * artifactBonus * globalDropBoost)) {
-                            foundArtifact = ARTIFACTS.lab;
-                        } else if (roll < ((1 / ARTIFACTS.equations.rarity) * artifactBonus * globalDropBoost)) {
-                            foundArtifact = ARTIFACTS.equations;
-                        } else if (roll < ((1 / ARTIFACTS.virus.rarity) * artifactBonus * globalDropBoost)) {
-                            foundArtifact = ARTIFACTS.virus;
-                        }
+                        // Weighted roll across the full ARTIFACTS table
+                        const foundArtifact = this._rollSearchArtifact(artifactBonus, craftingBonus, globalDropBoost);
                         
                         if (foundArtifact) {
                             this.processArtifactFind(foundArtifact, planet.name);
@@ -18740,12 +18684,32 @@ const SHIP_IMAGE_DATA = {
                 }, 1000);
             }
             
+            // Weighted loot — every ARTIFACTS entry can drop (fixes unreachable late chain entries)
+            _rollSearchArtifact(artifactBonus = 1, craftingBonus = 1, globalDropBoost = 1) {
+                if (typeof ARTIFACTS === 'undefined') return null;
+                const entries = [];
+                Object.values(ARTIFACTS).forEach(a => {
+                    if (!a || !a.rarity) return;
+                    const boost = (a.type === 'crafting') ? craftingBonus : globalDropBoost;
+                    const weight = Math.max(0.0001, (1 / a.rarity) * artifactBonus * boost);
+                    entries.push({ artifact: a, weight });
+                });
+                if (!entries.length) return null;
+                let r = Math.random() * entries.reduce((s, e) => s + e.weight, 0);
+                for (const e of entries) {
+                    r -= e.weight;
+                    if (r <= 0) return e.artifact;
+                }
+                return entries[entries.length - 1].artifact;
+            }
+
             processArtifactFind(artifact, planetName) {
                 // Show image popup modal
                 this.showArtifactModal(artifact, planetName);
                 
+                if (!this.inventory) this.inventory = [];
                 if (artifact.type === 'instant') {
-                    // Apply instant effects
+                    // Apply instant effects / planet events
                     if (artifact.effect === 'researchPoints') {
                         this.resources.researchPoints += artifact.value;
                         this.showNotification(`✅ +${artifact.value} Research Points!`);
@@ -18753,8 +18717,24 @@ const SHIP_IMAGE_DATA = {
                         const populationLoss = Math.floor(this.resources.population * (Math.abs(artifact.value) / 100));
                         this.resources.population -= populationLoss;
                         this.showNotification(`☣️ Virus outbreak! Lost ${populationLoss.toLocaleString()} population (-${Math.abs(artifact.value)}%)`);
+                    } else if (artifact.effect === 'food') {
+                        this.resources.food = (this.resources.food || 0) + (artifact.value || 0);
+                        this.showNotification(`🌿 ${artifact.name}: food reserves changed.`);
                     }
-                    this.updateDisplay();
+                    if (this.updateResources) this.updateResources();
+                    else if (this.updateDisplay) this.updateDisplay();
+                } else if (artifact.type === 'audio') {
+                    this.inventory.push({
+                        id: Date.now(),
+                        artifactId: artifact.id,
+                        name: artifact.name,
+                        icon: artifact.icon,
+                        foundAt: new Date().toISOString(),
+                        planetName: planetName,
+                        type: 'audio',
+                        effect: 'audio'
+                    });
+                    this.showNotification('🎵 Ancient Audio Disc added to Inventory! Use it to unlock a track.');
                 } else if (artifact.type === 'crafting') {
                     // Add to inventory for crafting
                     this.inventory.push({
@@ -18799,6 +18779,17 @@ const SHIP_IMAGE_DATA = {
                         }
                     }
                     this.showNotification(`✨ Permanent bonuses applied! Check Inventory.`);
+                } else if (artifact.type === 'schematic') {
+                    this.inventory.push({
+                        id: Date.now(),
+                        artifactId: artifact.id,
+                        name: artifact.name,
+                        icon: artifact.icon,
+                        foundAt: new Date().toISOString(),
+                        planetName: planetName,
+                        type: 'schematic'
+                    });
+                    this.showNotification(`📜 Schematic acquired: ${artifact.name}! Check Inventory / Crafting.`);
                 } else if (artifact.type === 'collectible') {
                     // Add to inventory
                     this.inventory.push({
@@ -18816,6 +18807,18 @@ const SHIP_IMAGE_DATA = {
                     if (fragmentCount >= 3) {
                         this.showNotification(`🔥 You have 3 fragments! Ultimate Weapon research available!`);
                     }
+                } else {
+                    // Fallback — never silently drop unknown artifact types
+                    this.inventory.push({
+                        id: Date.now(),
+                        artifactId: artifact.id,
+                        name: artifact.name,
+                        icon: artifact.icon,
+                        foundAt: new Date().toISOString(),
+                        planetName: planetName,
+                        type: artifact.type || 'unknown'
+                    });
+                    this.showNotification(`✨ Found: ${artifact.name}!`);
                 }
             }
             
@@ -21624,7 +21627,7 @@ const SHIP_IMAGE_DATA = {
 
                 // Dramatic modal
                 const modal = document.createElement('div');
-                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.93);z-index:10010;display:flex;align-items:center;justify-content:center;';
+                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.93);z-index:22000;display:flex;align-items:center;justify-content:center;';
                 modal.innerHTML = `
                     <div style="background:linear-gradient(135deg,#1a0005,#0d0d0d);border:2px solid #8b0000;border-radius:16px;padding:36px;max-width:480px;text-align:center;box-shadow:0 0 60px rgba(139,0,0,0.6);">
                         <div style="font-size:56px;margin-bottom:12px;">🧬</div>
@@ -22342,7 +22345,12 @@ const SHIP_IMAGE_DATA = {
             
             generateResources() {
               try {
-                const ownedPlanets = this.planets.filter(p => p.owner === this.selectedRace.name);
+                if (!this.selectedRace || !this.resources) return;
+                // Unclustered owned planets produce directly; clustered ones produce via their cluster
+                const ownedPlanets = this.planets.filter(p => this._isMyPlanet(p) && !p.inCluster);
+                const ownedClusters = (this.clusters || []).filter(c =>
+                    !c.inCluster && (c.owner === this.selectedRace.name || c.owner === this.playerData?.username)
+                );
                 
                 // Debug: Log once every 10 seconds (600 calls)
                 if (!this.resourceGenCounter) this.resourceGenCounter = 0;
@@ -22350,6 +22358,7 @@ const SHIP_IMAGE_DATA = {
                 if (this.resourceGenCounter % 600 === 0) {
                     console.log('⚙️ Resources generating:', {
                         ownedPlanets: ownedPlanets.length,
+                        ownedClusters: ownedClusters.length,
                         credits: this.resources.credits,
                         population: this.resources.population
                     });
@@ -22358,7 +22367,7 @@ const SHIP_IMAGE_DATA = {
                 const MAX_RESOURCE = 1000000000; // 1 billion cap
                 
                 // Get race modifiers (0-100 scale, convert to multiplier)
-                const raceModifiers = this.selectedRace.modifiers;
+                const raceModifiers = this.selectedRace.modifiers || { mining: 100, population: 100, credits: 100, foodProduction: 100 };
                 const miningMultiplier = raceModifiers.mining / 100;
                 const populationMultiplier = raceModifiers.population / 100;
                 const creditsMultiplier = raceModifiers.credits / 100;
@@ -22410,9 +22419,17 @@ const SHIP_IMAGE_DATA = {
                     const bloomHe3    = _bloom === 'he3'     ? 3.0 : 1.0;
                     const bloomFood   = _bloom === 'food'    ? 3.0 : 1.0;
                     const bloomCredit = _bloom === 'credits' ? 3.0 : 1.0;
-                    this.resources.metal += Math.floor((planet.resources.metal / 60) * metalBonus * miningMultiplier * globalMetalModifier * siegeMultiplier * tierMultiplier * constellationMultiplier * seismicBonus * bloomMetal);
-                    this.resources.he3 += Math.floor((planet.resources.he3 / 60) * globalHE3Modifier * siegeMultiplier * tierMultiplier * constellationMultiplier * bloomHe3);
-                    this.resources.food += Math.floor((planet.resources.food / 60) * foodBonus * artifactFoodBonus * globalFoodModifier * foodProductionMultiplier * siegeMultiplier * tierMultiplier * constellationMultiplier * bloomFood);
+                    // Planet-type specialization multipliers from PLANET_MODIFIERS
+                    const typeMods = (typeof PLANET_MODIFIERS !== 'undefined' && PLANET_MODIFIERS[planet.type]) || {};
+                    const typeMetal = Math.max(0.25, 1 + ((typeMods.metal || 0) / 100));
+                    const typeHe3   = Math.max(0.25, 1 + ((typeMods.he3 || 0) / 100));
+                    const typeFood  = Math.max(0.25, 1 + ((typeMods.food || 0) / 100));
+                    const pMetal = planet.resources?.metal ?? 0;
+                    const pHe3   = planet.resources?.he3 ?? 0;
+                    const pFood  = planet.resources?.food ?? 0;
+                    this.resources.metal += Math.floor((pMetal / 60) * metalBonus * miningMultiplier * globalMetalModifier * siegeMultiplier * tierMultiplier * constellationMultiplier * seismicBonus * bloomMetal * typeMetal);
+                    this.resources.he3 += Math.floor((pHe3 / 60) * globalHE3Modifier * siegeMultiplier * tierMultiplier * constellationMultiplier * bloomHe3 * typeHe3);
+                    this.resources.food += Math.floor((pFood / 60) * foodBonus * artifactFoodBonus * globalFoodModifier * foodProductionMultiplier * siegeMultiplier * tierMultiplier * constellationMultiplier * bloomFood * typeFood);
                     
                     // NEW POPULATION GROWTH: +1% per minute with cap of 2500 per planet
                     // Apply race population modifier AND artifact population bonus
@@ -22435,6 +22452,26 @@ const SHIP_IMAGE_DATA = {
                     }
                 });
                 
+                // Cluster resource production (constituent planets are inCluster and skipped above)
+                ownedClusters.forEach(cluster => {
+                    const cMetal = cluster.resources?.metal ?? 0;
+                    const cHe3   = cluster.resources?.he3 ?? 0;
+                    const cFood  = cluster.resources?.food ?? 0;
+                    let cMetalBonus = 1.0, cFoodBonus = 1.0;
+                    if (cluster.buildings?.['Mining Outpost']) cMetalBonus += 0.15 * cluster.buildings['Mining Outpost'];
+                    if (cluster.buildings?.['Farm']) cFoodBonus += 0.15 * cluster.buildings['Farm'];
+                    const focus = cluster.specialization;
+                    const fMetal = focus === 'metal' ? 1.35 : (focus ? 0.85 : 1);
+                    const fHe3   = focus === 'he3'   ? 1.35 : (focus ? 0.85 : 1);
+                    const fFood  = focus === 'food'  ? 1.35 : (focus ? 0.85 : 1);
+                    const gMetal = 0.7 * 0.65 * 0.40;
+                    const gHe3 = 0.7 * 0.65 * 0.40;
+                    const gFood = 0.65 * 0.40;
+                    this.resources.metal += Math.floor((cMetal / 60) * cMetalBonus * miningMultiplier * gMetal * fMetal);
+                    this.resources.he3   += Math.floor((cHe3 / 60) * gHe3 * fHe3);
+                    this.resources.food  += Math.floor((cFood / 60) * cFoodBonus * gFood * foodProductionMultiplier * fFood);
+                });
+
                 // Handle cluster population growth
                 this.clusters.forEach(cluster => {
                     if (!cluster.inCluster) { // Only count top-level clusters
@@ -22545,7 +22582,10 @@ const SHIP_IMAGE_DATA = {
                 const maintenanceCost = this.calculateMaintenanceCost();
                 this.resources.credits -= Math.floor(maintenanceCost.total / 3600);
                 
-                // Cap all resources at 1 billion
+                // Sanitize NaN then cap all resources at 1 billion
+                ['credits','metal','he3','food','population','researchPoints'].forEach(k => {
+                    if (!Number.isFinite(this.resources[k])) this.resources[k] = 0;
+                });
                 this.resources.credits = Math.min(Math.max(0, this.resources.credits), MAX_RESOURCE);
                 this.resources.metal = Math.min(Math.max(0, this.resources.metal), MAX_RESOURCE);
                 this.resources.he3 = Math.min(Math.max(0, this.resources.he3), MAX_RESOURCE);
@@ -22596,12 +22636,17 @@ const SHIP_IMAGE_DATA = {
                     this.resources.population = this.resources.population || 0;
                     this.resources.researchPoints = this.resources.researchPoints || 90;
                     
-                    // Memoize: skip all DOM writes if integer values unchanged
+                    // Memoize: skip DOM writes only when every displayed resource is unchanged
                     const _mc = Math.floor(this.resources.credits);
                     const _mm = Math.floor(this.resources.metal);
                     const _mh = Math.floor(this.resources.he3);
-                    if (this._lastCredits === _mc && this._lastMetal === _mm && this._lastHe3 === _mh) return;
+                    const _mf = Math.floor(this.resources.food);
+                    const _mp = Math.floor(this.resources.population);
+                    const _mr = Math.floor(this.resources.researchPoints || 0);
+                    if (this._lastCredits === _mc && this._lastMetal === _mm && this._lastHe3 === _mh
+                        && this._lastFood === _mf && this._lastPop === _mp && this._lastRP === _mr) return;
                     this._lastCredits = _mc; this._lastMetal = _mm; this._lastHe3 = _mh;
+                    this._lastFood = _mf; this._lastPop = _mp; this._lastRP = _mr;
 
                     document.getElementById('credits').textContent = this.resources.credits.toLocaleString();
                     document.getElementById('metal').textContent = this.resources.metal.toLocaleString();
@@ -23678,28 +23723,7 @@ const SHIP_IMAGE_DATA = {
 
                 const craftingBonus  = 1.875 * 3.5;
                 const globalDropBoost = 1.5  * 3.5;
-                const roll = Math.random();
-                let foundArtifact = null;
-
-                if (roll < ((1 / ARTIFACTS.ancientAudioDisc.rarity)    * artifactBonus * globalDropBoost)) { foundArtifact = ARTIFACTS.ancientAudioDisc; }
-                else if (roll < ((1 / ARTIFACTS.fragment.rarity)        * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.fragment; }
-                else if (roll < ((1 / ARTIFACTS.ancientPowerSupply.rarity)* artifactBonus * craftingBonus)){ foundArtifact = ARTIFACTS.ancientPowerSupply; }
-                else if (roll < ((1 / ARTIFACTS.platinum.rarity)        * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.platinum; }
-                else if (roll < ((1 / ARTIFACTS.carbon.rarity)          * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.carbon; }
-                else if (roll < ((1 / ARTIFACTS.webbing.rarity)         * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.webbing; }
-                else if (roll < ((1 / ARTIFACTS.liquidAluminum.rarity)  * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.liquidAluminum; }
-                else if (roll < ((1 / ARTIFACTS.dataCrystal.rarity)     * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.dataCrystal; }
-                else if (roll < ((1 / ARTIFACTS.primordialOoze.rarity)  * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.primordialOoze; }
-                else if (roll < ((1 / ARTIFACTS.basiliskVenom.rarity)   * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.basiliskVenom; }
-                else if (roll < ((1 / ARTIFACTS.seaUrchinPoison.rarity) * artifactBonus * craftingBonus))  { foundArtifact = ARTIFACTS.seaUrchinPoison; }
-                else if (roll < ((1 / ARTIFACTS.psychedelicMushrooms.rarity)* artifactBonus * craftingBonus)){ foundArtifact = ARTIFACTS.psychedelicMushrooms; }
-                else if (ARTIFACTS.deathLily  && roll < ((1 / ARTIFACTS.deathLily.rarity)  * artifactBonus * craftingBonus)) { foundArtifact = ARTIFACTS.deathLily; }
-                else if (ARTIFACTS.gold       && roll < ((1 / ARTIFACTS.gold.rarity)       * artifactBonus * craftingBonus)) { foundArtifact = ARTIFACTS.gold; }
-                else if (ARTIFACTS.mercury    && roll < ((1 / ARTIFACTS.mercury.rarity)    * artifactBonus * craftingBonus)) { foundArtifact = ARTIFACTS.mercury; }
-                else if (ARTIFACTS.flora      && roll < ((1 / ARTIFACTS.flora.rarity)      * artifactBonus * globalDropBoost)){ foundArtifact = ARTIFACTS.flora; }
-                else if (ARTIFACTS.lab        && roll < ((1 / ARTIFACTS.lab.rarity)        * artifactBonus * globalDropBoost)){ foundArtifact = ARTIFACTS.lab; }
-                else if (ARTIFACTS.equations  && roll < ((1 / ARTIFACTS.equations.rarity)  * artifactBonus * globalDropBoost)){ foundArtifact = ARTIFACTS.equations; }
-                else if (ARTIFACTS.virus      && roll < ((1 / ARTIFACTS.virus.rarity)      * artifactBonus * globalDropBoost)){ foundArtifact = ARTIFACTS.virus; }
+                const foundArtifact = this._rollSearchArtifact(artifactBonus, craftingBonus, globalDropBoost);
 
                 if (foundArtifact) {
                     this.processArtifactFind(foundArtifact, planet.name);
@@ -23717,28 +23741,7 @@ const SHIP_IMAGE_DATA = {
                 const tierBoost      = tierDropBonus[cluster.tier] || 1.0;
                 const craftingBonus  = 1.875 * 3.5 * tierBoost;
                 const globalDropBoost = 1.5  * 3.5 * tierBoost;
-                const roll = Math.random();
-                let foundArtifact = null;
-
-                if (roll < ((1 / ARTIFACTS.ancientAudioDisc.rarity)    * globalDropBoost)) { foundArtifact = ARTIFACTS.ancientAudioDisc; }
-                else if (roll < ((1 / ARTIFACTS.fragment.rarity)        * craftingBonus))  { foundArtifact = ARTIFACTS.fragment; }
-                else if (roll < ((1 / ARTIFACTS.ancientPowerSupply.rarity)* craftingBonus)){ foundArtifact = ARTIFACTS.ancientPowerSupply; }
-                else if (roll < ((1 / ARTIFACTS.platinum.rarity)        * craftingBonus))  { foundArtifact = ARTIFACTS.platinum; }
-                else if (roll < ((1 / ARTIFACTS.carbon.rarity)          * craftingBonus))  { foundArtifact = ARTIFACTS.carbon; }
-                else if (roll < ((1 / ARTIFACTS.webbing.rarity)         * craftingBonus))  { foundArtifact = ARTIFACTS.webbing; }
-                else if (roll < ((1 / ARTIFACTS.liquidAluminum.rarity)  * craftingBonus))  { foundArtifact = ARTIFACTS.liquidAluminum; }
-                else if (roll < ((1 / ARTIFACTS.dataCrystal.rarity)     * craftingBonus))  { foundArtifact = ARTIFACTS.dataCrystal; }
-                else if (roll < ((1 / ARTIFACTS.primordialOoze.rarity)  * craftingBonus))  { foundArtifact = ARTIFACTS.primordialOoze; }
-                else if (roll < ((1 / ARTIFACTS.basiliskVenom.rarity)   * craftingBonus))  { foundArtifact = ARTIFACTS.basiliskVenom; }
-                else if (roll < ((1 / ARTIFACTS.seaUrchinPoison.rarity) * craftingBonus))  { foundArtifact = ARTIFACTS.seaUrchinPoison; }
-                else if (roll < ((1 / ARTIFACTS.psychedelicMushrooms.rarity)* craftingBonus)){ foundArtifact = ARTIFACTS.psychedelicMushrooms; }
-                else if (ARTIFACTS.deathLily  && roll < ((1 / ARTIFACTS.deathLily.rarity)  * craftingBonus)) { foundArtifact = ARTIFACTS.deathLily; }
-                else if (ARTIFACTS.gold       && roll < ((1 / ARTIFACTS.gold.rarity)       * craftingBonus)) { foundArtifact = ARTIFACTS.gold; }
-                else if (ARTIFACTS.mercury    && roll < ((1 / ARTIFACTS.mercury.rarity)    * craftingBonus)) { foundArtifact = ARTIFACTS.mercury; }
-                else if (ARTIFACTS.flora      && roll < ((1 / ARTIFACTS.flora.rarity)      * globalDropBoost)){ foundArtifact = ARTIFACTS.flora; }
-                else if (ARTIFACTS.lab        && roll < ((1 / ARTIFACTS.lab.rarity)        * globalDropBoost)){ foundArtifact = ARTIFACTS.lab; }
-                else if (ARTIFACTS.equations  && roll < ((1 / ARTIFACTS.equations.rarity)  * globalDropBoost)){ foundArtifact = ARTIFACTS.equations; }
-                else if (ARTIFACTS.virus      && roll < ((1 / ARTIFACTS.virus.rarity)      * globalDropBoost)){ foundArtifact = ARTIFACTS.virus; }
+                const foundArtifact = this._rollSearchArtifact(1.0, craftingBonus, globalDropBoost);
 
                 if (foundArtifact) {
                     this.processArtifactFind(foundArtifact, cluster.name);
@@ -24149,7 +24152,7 @@ const SHIP_IMAGE_DATA = {
                             </button>
                         </div>
                         <div style="margin-top:6px;font-size:10px;color:#8ba3c7;text-align:center;">Suggested Value: ₡${artifactDef.marketValue?.toLocaleString()}</div>`;
-                    } else if (artifactDef.type === 'crafting') {
+                    } else if (artifactDef.type === 'crafting' || artifactDef.type === 'schematic') {
                         actionsHTML = `
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 12px;">
                             <button onclick="if(window.craftingManager){window.game.closeInventory();window.craftingManager.open();}" style="padding: 8px; background: linear-gradient(135deg, rgba(255,215,0,0.3), rgba(255,149,0,0.2)); border: 1px solid rgba(255,215,0,0.6); border-radius: 6px; color: #ffd700; font-weight: 700; cursor: pointer; font-size: 11px;">
@@ -24244,9 +24247,10 @@ const SHIP_IMAGE_DATA = {
                     this.showNotification(`✨ ${artifactDef.name} bonuses applied!`);
                     
                 } else if (artifactDef.type === 'audio') {
-                    // Ancient Audio Disc — unlocks a random track
+                    // Ancient Audio Disc — unlocks a random track (keep disc if unlock fails)
                     if (window.audioManager) {
-                        window.audioManager.useAudioDisc(itemId);
+                        const unlocked = window.audioManager.useAudioDisc(itemId);
+                        if (!unlocked) return;
                         this.inventory = this.inventory.filter(i => i.id != itemId);
                     } else {
                         this.showNotification('⚠️ Audio system not ready');
@@ -24767,6 +24771,107 @@ const SHIP_IMAGE_DATA = {
                 return this.unlockedShips.map(shipType => SPECIAL_SHIPS[shipType]).filter(s => s);
             }
             
+            // ===== PLANET/CLUSTER SPECIALIZATION =====
+            specializePlanet(planetId) {
+                const planet = this.planets.find(p => Number(p.id) === Number(planetId));
+                if (!planet || !this._isMyPlanet(planet)) {
+                    this.showNotification('⚠️ You can only specialize your own planets');
+                    return;
+                }
+                document.getElementById('specializeModal')?.remove();
+                const types = (typeof PLANET_TYPES !== 'undefined') ? PLANET_TYPES : ['Balanced','Desert','Water','Ice','Forest','Barren','Gas'];
+                const options = types.map(t => {
+                    const m = (typeof PLANET_MODIFIERS !== 'undefined' && PLANET_MODIFIERS[t]) || {};
+                    const sel = t === planet.type ? 'selected' : '';
+                    return `<option value="${t}" ${sel}>${t} (⛏${m.metal||0} ⚡${m.he3||0} 🌾${m.food||0})</option>`;
+                }).join('');
+                const modal = document.createElement('div');
+                modal.id = 'specializeModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:22000;display:flex;align-items:center;justify-content:center;';
+                modal.innerHTML = `
+                    <div style="background:var(--bg-secondary);border:2px solid var(--accent-secondary);border-radius:12px;padding:28px;max-width:460px;width:90%;">
+                        <h2 style="color:var(--accent-secondary);font-family:Orbitron,sans-serif;font-size:18px;margin:0 0 10px;">⚗️ Specialize Planet</h2>
+                        <p style="color:var(--text-secondary);font-size:13px;margin:0 0 12px;">Retune <strong style="color:var(--text-primary);">${planet.name}</strong> toward a resource profile. Costs 2,500 credits. Production uses the new type multipliers immediately.</p>
+                        <select id="specializeTypeSelect" style="width:100%;padding:10px;margin-bottom:16px;background:var(--bg-primary);border:1px solid var(--accent-secondary);border-radius:6px;color:var(--text-primary);">${options}</select>
+                        <div style="display:flex;gap:10px;justify-content:flex-end;">
+                            <button id="specializeCancel" class="btn" style="background:var(--bg-tertiary);">Cancel</button>
+                            <button id="specializeConfirm" class="btn">✅ Specialize</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(modal);
+                const close = () => modal.remove();
+                modal.querySelector('#specializeCancel').onclick = close;
+                modal.onclick = e => { if (e.target === modal) close(); };
+                modal.querySelector('#specializeConfirm').onclick = () => {
+                    const next = modal.querySelector('#specializeTypeSelect').value;
+                    if (!next || next === planet.type) { close(); return; }
+                    if ((this.resources.credits || 0) < 2500) {
+                        this.showNotification('⚠️ Need ₡2,500 to specialize');
+                        return;
+                    }
+                    this.resources.credits -= 2500;
+                    planet.type = next;
+                    const mods = (typeof PLANET_MODIFIERS !== 'undefined' && PLANET_MODIFIERS[next]) || {};
+                    // Nudge stored yields toward the specialization so the type is felt immediately
+                    if (!planet.resources) planet.resources = { metal: 1000, he3: 500, food: 500 };
+                    planet.resources.metal = Math.max(100, Math.floor((planet.resources.metal || 1000) * Math.max(0.5, 1 + (mods.metal || 0) / 200)));
+                    planet.resources.he3   = Math.max(100, Math.floor((planet.resources.he3   || 500)  * Math.max(0.5, 1 + (mods.he3   || 0) / 200)));
+                    planet.resources.food  = Math.max(100, Math.floor((planet.resources.food  || 500)  * Math.max(0.5, 1 + (mods.food  || 0) / 200)));
+                    this.updateResources();
+                    this.showNotification(`⚗️ ${planet.name} specialized as ${next}`);
+                    if (this.renderOwnedPlanets) this.renderOwnedPlanets();
+                    this.saveGameState();
+                    close();
+                };
+            }
+
+            specializeCluster(clusterId) {
+                const cluster = this.clusters.find(c => Number(c.id) === Number(clusterId));
+                if (!cluster) return;
+                if (cluster.owner !== this.selectedRace?.name && cluster.owner !== this.playerData?.username) {
+                    this.showNotification('⚠️ You can only specialize your own clusters');
+                    return;
+                }
+                document.getElementById('specializeModal')?.remove();
+                const cur = cluster.specialization || '';
+                const modal = document.createElement('div');
+                modal.id = 'specializeModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:22000;display:flex;align-items:center;justify-content:center;';
+                modal.innerHTML = `
+                    <div style="background:var(--bg-secondary);border:2px solid var(--accent-secondary);border-radius:12px;padding:28px;max-width:460px;width:90%;">
+                        <h2 style="color:var(--accent-secondary);font-family:Orbitron,sans-serif;font-size:18px;margin:0 0 10px;">⚗️ Specialize Cluster</h2>
+                        <p style="color:var(--text-secondary);font-size:13px;margin:0 0 12px;">Focus <strong style="color:var(--text-primary);">${cluster.name}</strong> on one resource (+35% focused, −15% others). Costs 10,000 credits.</p>
+                        <select id="specializeTypeSelect" style="width:100%;padding:10px;margin-bottom:16px;background:var(--bg-primary);border:1px solid var(--accent-secondary);border-radius:6px;color:var(--text-primary);">
+                            <option value="" ${!cur ? 'selected' : ''}>Balanced (no focus)</option>
+                            <option value="metal" ${cur==='metal'?'selected':''}>⛏ Metal Focus</option>
+                            <option value="he3" ${cur==='he3'?'selected':''}>⚡ HE3 Focus</option>
+                            <option value="food" ${cur==='food'?'selected':''}>🌾 Food Focus</option>
+                        </select>
+                        <div style="display:flex;gap:10px;justify-content:flex-end;">
+                            <button id="specializeCancel" class="btn" style="background:var(--bg-tertiary);">Cancel</button>
+                            <button id="specializeConfirm" class="btn">✅ Specialize</button>
+                        </div>
+                    </div>`;
+                document.body.appendChild(modal);
+                const close = () => modal.remove();
+                modal.querySelector('#specializeCancel').onclick = close;
+                modal.onclick = e => { if (e.target === modal) close(); };
+                modal.querySelector('#specializeConfirm').onclick = () => {
+                    const next = modal.querySelector('#specializeTypeSelect').value;
+                    if ((this.resources.credits || 0) < 10000) {
+                        this.showNotification('⚠️ Need ₡10,000 to specialize a cluster');
+                        return;
+                    }
+                    this.resources.credits -= 10000;
+                    cluster.specialization = next || null;
+                    this.updateResources();
+                    this.showNotification(next ? `⚗️ ${cluster.name} focused on ${next.toUpperCase()}` : `⚗️ ${cluster.name} set to balanced`);
+                    if (this.renderOwnedPlanets) this.renderOwnedPlanets();
+                    this.saveGameState();
+                    close();
+                };
+            }
+
             // ===== PLANET/CLUSTER NAMING METHODS =====
             
             renamePlanet(planetId) {
@@ -24779,7 +24884,7 @@ const SHIP_IMAGE_DATA = {
                 const currentName = planet.name;
                 const modal = document.createElement('div');
                 modal.id = 'renamePlanetModal';
-                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.88);z-index:10010;display:flex;align-items:center;justify-content:center;';
+                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.88);z-index:22000;display:flex;align-items:center;justify-content:center;';
                 modal.innerHTML = `
                     <div style="background:var(--bg-secondary);border:2px solid var(--accent-primary);border-radius:12px;padding:28px;max-width:460px;width:90%;box-shadow:0 0 40px rgba(0,217,255,0.2);">
                         <h2 style="color:var(--accent-primary);font-family:'Orbitron',sans-serif;font-size:18px;margin:0 0 14px;">🌍 Rename Planet</h2>
@@ -24820,7 +24925,9 @@ const SHIP_IMAGE_DATA = {
                 planet.name = newName.trim();
                 
                 this.showNotification(`✅ Planet renamed to "${newName.trim()}"`);
-                this.renderPlanets();
+                if (this.renderPlanets) this.renderPlanets();
+                if (this.renderOwnedPlanets) this.renderOwnedPlanets();
+                if (this.renderAvailablePlanets) this.renderAvailablePlanets();
                 this.updateMap();
                 this.saveGameState();
             }
@@ -24828,11 +24935,15 @@ const SHIP_IMAGE_DATA = {
             renameCluster(clusterId) {
                 const cluster = this.clusters.find(c => Number(c.id) === Number(clusterId));
                 if (!cluster) return;
+                if (cluster.owner !== this.selectedRace?.name && cluster.owner !== this.playerData?.username) {
+                    this.showNotification('⚠️ You can only rename your own clusters');
+                    return;
+                }
                 document.getElementById('renameClusterModal')?.remove();
                 const currentName = cluster.name;
                 const modal = document.createElement('div');
                 modal.id = 'renameClusterModal';
-                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.88);z-index:10010;display:flex;align-items:center;justify-content:center;';
+                modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.88);z-index:22000;display:flex;align-items:center;justify-content:center;';
                 modal.innerHTML = `
                     <div style="background:var(--bg-secondary);border:2px solid var(--accent-primary);border-radius:12px;padding:28px;max-width:460px;width:90%;box-shadow:0 0 40px rgba(0,217,255,0.2);">
                         <h2 style="color:var(--accent-primary);font-family:'Orbitron',sans-serif;font-size:18px;margin:0 0 14px;">🌌 Rename Cluster</h2>
@@ -24873,7 +24984,8 @@ const SHIP_IMAGE_DATA = {
                 cluster.name = newName.trim();
                 
                 this.showNotification(`✅ Cluster renamed to "${newName.trim()}"`);
-                this.renderClusters();
+                if (this.renderClusters) this.renderClusters();
+                if (this.renderOwnedPlanets) this.renderOwnedPlanets();
                 this.saveGameState();
             }
         }
@@ -25316,7 +25428,8 @@ const SHIP_IMAGE_DATA = {
             }
 
             console.log('✅ Authentication successful!');
-            startGameSession(result.player);
+            if (result.sessionToken) window.auth.currentSession = result.sessionToken;
+            startGameSession({ ...result.player, sessionToken: result.sessionToken });
         }
 
         // Shared "enter the game" sequence used by both MP and local login/register —
@@ -25451,7 +25564,8 @@ const SHIP_IMAGE_DATA = {
             
             console.log('✅ Account created! Auto-logging in...');
             const loginResult = window.auth.db.authenticatePlayer(username, password);
-            startGameSession(loginResult.player);
+            if (loginResult.sessionToken) window.auth.currentSession = loginResult.sessionToken;
+            startGameSession({ ...loginResult.player, sessionToken: loginResult.sessionToken });
         }
         
         function closeAccountModal() {
@@ -25865,11 +25979,16 @@ const SHIP_IMAGE_DATA = {
         // ===== ADMIN PANEL FUNCTIONS =====
         
         function openAdminPanel() {
+            const uname = (window.game?.playerData?.username || '').toLowerCase();
+            if (uname !== 'mister') {
+                if (window.game) window.game.showNotification('⚠️ Admin panel is restricted.');
+                return;
+            }
             document.getElementById('adminPanelModal').style.display = 'block';
             document.getElementById('dropdownMenu').classList.remove('show');
             
             // Set admin account type badge
-            const accountType = game.playerData?.accountType || 'Player';
+            const accountType = window.game.playerData?.accountType || 'Admin';
             document.getElementById('adminAccountType').textContent = accountType;
             
             // Load default tab
@@ -26598,24 +26717,27 @@ const SHIP_IMAGE_DATA = {
 
                 // ── Disc track pool (tracks discoverable via Ancient Audio Disc) ──
                 const discPool = [
-                    { file: 'audio/emmraan-vengeance-289084.mp3',                                        title: 'Vengeance',                     artist: 'Emmraan' },
-                    { file: 'audio/farran_ez-futuristic-cyber-metalcore-music-cue-460318.mp3',           title: 'Futuristic Cyber Metalcore',     artist: 'Farran EZ' },
-                    { file: 'audio/farran_ez-high-energy-electricore-background-music-460316.mp3',       title: 'High Energy Electricore',        artist: 'Farran EZ' },
-                    { file: 'audio/forgotten-hero-records-dark-electro-industrial-techno-497717.mp3',    title: 'Dark Electro Industrial Techno', artist: 'Forgotten Hero Records' },
-                    { file: 'audio/11dot21-space-travel-142013.mp3',                                     title: 'Space Travel',                   artist: '11dot21' },
-                    { file: 'audio/audiotracks-dystorpian-250560.mp3',                                   title: 'Dystorpian',                     artist: 'Audiotracks' },
-                    { file: 'audio/emmraan-ready-for-victory-216451.mp3',                                title: 'Ready for Victory',              artist: 'Emmraan' },
-                    { file: 'audio/emmraan-ready-to-fight-282932.mp3',                                   title: 'Ready to Fight',                 artist: 'Emmraan' },
+                    { file: 'LootMusic/emmraan-vengeance-289084.mp3',                                        title: 'Vengeance',                     artist: 'Emmraan' },
+                    { file: 'LootMusic/farran_ez-futuristic-cyber-metalcore-music-cue-460318.mp3',           title: 'Futuristic Cyber Metalcore',     artist: 'Farran EZ' },
+                    { file: 'LootMusic/farran_ez-high-energy-electricore-background-music-460316.mp3',       title: 'High Energy Electricore',        artist: 'Farran EZ' },
+                    { file: 'LootMusic/forgotten-hero-records-dark-electro-industrial-techno-497717.mp3',    title: 'Dark Electro Industrial Techno', artist: 'Forgotten Hero Records' },
+                    { file: 'LootMusic/11dot21-space-travel-142013.mp3',                                     title: 'Space Travel',                   artist: '11dot21' },
+                    { file: 'LootMusic/audiotracks-dystorpian-250560.mp3',                                   title: 'Dystorpian',                     artist: 'Audiotracks' },
+                    { file: 'LootMusic/emmraan-ready-for-victory-216451.mp3',                                title: 'Ready for Victory',              artist: 'Emmraan' },
+                    { file: 'LootMusic/emmraan-ready-to-fight-282932.mp3',                                   title: 'Ready to Fight',                 artist: 'Emmraan' },
                 ];
+                this.discPool = discPool;
                 // Seed the disc pool into localStorage if not already seeded
-                if (!localStorage.getItem('fu_audio_disc_tracks')) {
-                    localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(discPool));
-                } else {
-                    // Merge any new tracks not already in the pool
-                    const existing = JSON.parse(localStorage.getItem('fu_audio_disc_tracks'));
-                    const existingFiles = existing.map(t => t.file);
-                    discPool.forEach(t => { if (!existingFiles.includes(t.file)) existing.push(t); });
-                    localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(existing));
+                {
+                    const existing = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]');
+                    const byFile = {};
+                    existing.forEach(t => {
+                        if (!t || !t.file) return;
+                        const fixed = Object.assign({}, t, { file: String(t.file).replace(/^audio\//, 'LootMusic/') });
+                        byFile[fixed.file] = fixed;
+                    });
+                    discPool.forEach(t => { byFile[t.file] = t; });
+                    localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(Object.values(byFile)));
                 }
 
                 // Load any bonus tracks saved from disc discoveries
@@ -26811,29 +26933,32 @@ const SHIP_IMAGE_DATA = {
                 return this.tracks[this.playlist[this.currentIndex]] || null;
             }
 
-            // Called when player uses an Ancient Audio Disc
+            // Called when player uses an Ancient Audio Disc. Returns true if a track unlocked.
             useAudioDisc(itemId) {
-                const bonusTracks = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]');
-                if (bonusTracks.length === 0) {
-                    if (window.game) window.game.showNotification('📀 Ancient Audio Disc: No new tracks available yet.');
-                    return;
+                let bonusTracks = [];
+                try { bonusTracks = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]'); } catch (e) { bonusTracks = []; }
+                if ((!bonusTracks || !bonusTracks.length) && this.discPool && this.discPool.length) {
+                    bonusTracks = this.discPool.slice();
                 }
-                // Pick a random unrevealed track
+                if (!bonusTracks.length) {
+                    if (window.game) window.game.showNotification('📀 Ancient Audio Disc: No new tracks available yet.');
+                    return false;
+                }
                 const already = this.tracks.map(t => t.file);
-                const unseen  = bonusTracks.filter(t => !already.includes(t.file));
+                const unseen  = bonusTracks.filter(t => t && t.file && !already.includes(t.file));
                 if (unseen.length === 0) {
                     if (window.game) window.game.showNotification('📀 All disc tracks already unlocked!');
-                    return;
+                    return false;
                 }
                 const pick = unseen[Math.floor(Math.random() * unseen.length)];
                 this.tracks.push(pick);
                 this.playlist.push(this.tracks.length - 1);
-                // Persist bonus track
                 const saved = JSON.parse(localStorage.getItem('fu_audio_bonus_tracks') || '[]');
                 saved.push(pick);
                 localStorage.setItem('fu_audio_bonus_tracks', JSON.stringify(saved));
                 if (window.game) window.game.showNotification(`🎵 Ancient Audio Disc unlocked: "${pick.title}" by ${pick.artist}!`);
                 this.updatePlayerUI();
+                return true;
             }
 
             // Load local MP3/audio files directly into the playlist
@@ -28166,7 +28291,7 @@ window.playAsGuest = function() {
                 }
             });
 
-            window.game.horizonCoins = 5000;
+            window.game.horizonCoins = 500;
             window.game.updateUI();
             window.game.init();
 
@@ -28346,7 +28471,7 @@ window.tutorialManager = (() => {
             id: 'welcome',
             icon: '🌌',
             title: 'Welcome to Fractured Universe',
-            body: `Welcome, Commander. This walkthrough follows the real buttons, costs, and waits in a new empire.\n\nYou start with <strong style="color:#ffd700;">3 planets</strong>, drone ships, <strong>50,000 credits</strong> (100,000 as a guest), and <strong>5,000 Horizon Coins</strong>. Three copies of one Common commander, plus a second commander, are added to your collection.\n\nDrag this window by the header if it covers a button. Next stays locked until the required action actually succeeds.`,
+            body: `Welcome, Commander. This walkthrough follows the real buttons, costs, and waits in a new empire.\n\nYou start with <strong style="color:#ffd700;">3 planets</strong>, drone ships, <strong>50,000 credits</strong> (100,000 as a guest), and <strong>500 Horizon Coins</strong>. Three copies of one Common commander, plus a second commander, are added to your collection.\n\nDrag this window by the header if it covers a button. Next stays locked until the required action actually succeeds.`,
             hint: 'You can restart this any time from the account menu → Restart Tutorial.',
             target: null,
             position: 'center',
@@ -28436,7 +28561,7 @@ window.tutorialManager = (() => {
             id: 'commanders',
             icon: '⭐',
             title: 'Open Commanders',
-            body: `Press <strong style="color:#ffd700;">COMMANDERS</strong> in the header. That is the gold button, not Buy Coins.\n\nYou start with <strong>5,000 Horizon Coins</strong>. The shop sells a Common pack for 100, an Epic pack for 300, and a Legendary pack for 500. Opening the panel is enough — you do not have to buy one. Your starter commanders are on the <strong>Collection</strong> tab.`,
+            body: `Press <strong style="color:#ffd700;">COMMANDERS</strong> in the header. That is the gold button, not Buy Coins.\n\nYou start with <strong>500 Horizon Coins</strong>. The shop sells a Common pack for 100, an Epic pack for 300, and a Legendary pack for 500. Opening the panel is enough — you do not have to buy one. Your starter commanders are on the <strong>Collection</strong> tab.`,
             hint: 'Buy Coins is the purple button beside it and does not complete this step.',
             target: 'button[onclick*="commanderManager.openPanel()"]',
             position: 'below',
