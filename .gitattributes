@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Keep music files binary (prevent CRLF corruption)
+*.mp3 binary
+*.ogg binary
+*.wav binary

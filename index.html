@@ -26926,31 +26926,21 @@ const SHIP_IMAGE_DATA = {
                 this.playerPanelOpen = false;
                 this._loading        = false; // lock to prevent concurrent play calls
                 this._lastPlayedIndex = -1;  // track which index is loaded
-                this._brokenTracks    = new Set(); // files that failed to load
-                this._skipGuardUntil  = 0;
+                this._brokenTracks    = new Set(); // files that failed after all fallbacks
+                this._playGen         = 0;   // ignore stale error/ended from prior src
+                this._activeSrc       = '';
+                this._canPlayHandler  = null;
+                this._errorHandler    = null;
 
-                // 'ended' — advance to next track naturally
+                // 'ended' — only advance if this generation still owns the element
                 this.audio.addEventListener('ended', () => {
+                    if (!this._playGen) return;
+                    // Ignore bogus ended events that fire before playback really started
+                    if (!isFinite(this.audio.duration) || this.audio.duration < 0.5) return;
+                    if (this.audio.currentTime < 0.25 && this.audio.duration > 2) return;
                     this._loading = false;
                     this.isPlaying = false;
                     this.playNext();
-                });
-
-                // 'error' — only skip on genuine file errors, not abort
-                this.audio.addEventListener('error', () => {
-                    // MediaError code 1 = MEDIA_ERR_ABORTED (src change mid-load) — ignore
-                    if (this.audio.error && this.audio.error.code === 1) return;
-                    const track = this.tracks[this.playlist[this.currentIndex]];
-                    const file = track?.file;
-                    console.warn('🎵 Audio error on track, skipping:', file, this.audio.error?.code);
-                    if (file) this._brokenTracks.add(file);
-                    this._loading = false;
-                    this.isPlaying = false;
-                    // Skip after a short delay to prevent runaway loops
-                    const now = Date.now();
-                    if (now < this._skipGuardUntil) return;
-                    this._skipGuardUntil = now + 400;
-                    setTimeout(() => this.playNext(), 350);
                 });
 
                 this.audio.addEventListener('timeupdate', () => this.updateProgress());
@@ -27013,11 +27003,132 @@ const SHIP_IMAGE_DATA = {
                 // Legacy builds pointed playlist files at missing audio/ — files live in assets/
                 if (file.startsWith('audio/')) {
                     const name = file.slice(6);
-                    // Theme was never shipped; keep LootMusic/assets mapping for known packs
                     if (name.toLowerCase() === 'theme.mp3') return 'assets/the_mountain-ambient-487008.mp3';
                     return 'assets/' + name;
                 }
                 return file;
+            }
+
+            _candidateUrls(file) {
+                const primary = this._normalizeTrackPath(file);
+                const name = String(primary).split('/').pop();
+                const out = [];
+                const add = (u) => { if (u && !out.includes(u)) out.push(u); };
+                add(primary);
+                if (name) {
+                    add('assets/' + name);
+                    add(name);
+                    add('LootMusic/' + name);
+                }
+                return out;
+            }
+
+            _detachTransientHandlers() {
+                if (this._canPlayHandler) {
+                    this.audio.removeEventListener('canplay', this._canPlayHandler);
+                    this.audio.removeEventListener('loadeddata', this._canPlayHandler);
+                    this._canPlayHandler = null;
+                }
+                if (this._errorHandler) {
+                    this.audio.removeEventListener('error', this._errorHandler);
+                    this._errorHandler = null;
+                }
+            }
+
+            _startPlayback(track, gen) {
+                if (gen !== this._playGen) return;
+                const p = this.audio.play();
+                if (p !== undefined) {
+                    p.then(() => {
+                        if (gen !== this._playGen) return;
+                        this._loading = false;
+                        this.isPlaying = true;
+                        this.updatePlayerUI();
+                        this.updateButton();
+                        console.log('🎵 Now playing:', track.title, 'by', track.artist, this._activeSrc);
+                    }).catch(err => {
+                        if (gen !== this._playGen) return;
+                        this._loading = false;
+                        this.isPlaying = false;
+                        if (err.name === 'AbortError') {
+                            this.updatePlayerUI();
+                        } else if (err.name === 'NotAllowedError') {
+                            console.info('🎵 Waiting for user interaction to start audio');
+                            this.updatePlayerUI();
+                        } else {
+                            console.warn('🎵 Play failed:', err.message);
+                            this._handleTrackFailure(track, gen);
+                        }
+                    });
+                } else {
+                    this._loading = false;
+                    this.isPlaying = true;
+                    this.updatePlayerUI();
+                }
+            }
+
+            _handleTrackFailure(track, gen) {
+                if (gen !== this._playGen) return;
+                const tried = track._triedUrls || [];
+                const all = this._candidateUrls(track.file);
+                const next = all.find(u => !tried.includes(u));
+                if (next) {
+                    console.warn('🎵 Retrying track with fallback URL:', next);
+                    this._loadTrackUrl(track, next, gen);
+                    return;
+                }
+                console.warn('🎵 Giving up on track after fallbacks:', track.file);
+                if (track.file) this._brokenTracks.add(track.file);
+                this._loading = false;
+                this.isPlaying = false;
+                this.updatePlayerUI();
+                setTimeout(() => {
+                    if (gen === this._playGen) this.playNext();
+                }, 250);
+            }
+
+            _loadTrackUrl(track, url, gen) {
+                if (gen !== this._playGen) return;
+                if (!track._triedUrls) track._triedUrls = [];
+                if (!track._triedUrls.includes(url)) track._triedUrls.push(url);
+
+                this._detachTransientHandlers();
+                this._activeSrc = url;
+                this._loading = true;
+
+                this._canPlayHandler = () => {
+                    if (gen !== this._playGen) return;
+                    this._detachTransientHandlers();
+                    this._startPlayback(track, gen);
+                };
+                this._errorHandler = () => {
+                    if (gen !== this._playGen) return;
+                    // MEDIA_ERR_ABORTED
+                    if (this.audio.error && this.audio.error.code === 1) return;
+                    console.warn('🎵 Audio error:', url, this.audio.error?.code);
+                    this._detachTransientHandlers();
+                    this._handleTrackFailure(track, gen);
+                };
+
+                this.audio.addEventListener('canplay', this._canPlayHandler, { once: true });
+                this.audio.addEventListener('loadeddata', this._canPlayHandler, { once: true });
+                this.audio.addEventListener('error', this._errorHandler, { once: true });
+
+                try {
+                    this.audio.pause();
+                } catch (e) {}
+                // Setting src begins fetch — avoid extra load() which aborts and races errors.
+                this.audio.preload = 'auto';
+                this.audio.src = url;
+
+                // Safety timeout — large files on slow hosts
+                setTimeout(() => {
+                    if (gen !== this._playGen) return;
+                    if (this.isPlaying || this.audio.readyState >= 2) return;
+                    console.warn('🎵 Track load timeout:', url);
+                    this._detachTransientHandlers();
+                    this._handleTrackFailure(track, gen);
+                }, 12000);
             }
 
             init() {
@@ -27025,12 +27136,10 @@ const SHIP_IMAGE_DATA = {
             }
 
             play(index) {
-                // Prevent concurrent calls from stacking
-                if (this._loading) return;
                 if (!this.playlist.length) return;
-
+                // Allow barge-in: cancel in-flight load and start the requested track
                 if (index !== undefined) this.currentIndex = index;
-                // Skip known-broken entries instead of thrashing the error loop
+
                 let attempts = 0;
                 while (attempts < this.playlist.length) {
                     const trackIdx = this.playlist[this.currentIndex];
@@ -27050,49 +27159,12 @@ const SHIP_IMAGE_DATA = {
                 const track = this.tracks[trackIdx];
                 if (!track) return;
                 track.file = this._normalizeTrackPath(track.file);
+                track._triedUrls = [];
 
-                this._loading = true;
-
-                // Set the track source — for data: URIs we track by index,
-                // for file paths we compare src. Always set on index change.
-                const newSrc = track.file;
-                const isSameTrack = (this._lastPlayedIndex === this.currentIndex) && this.audio.src && this.audio.readyState > 0;
-                if (!isSameTrack) {
-                    this.audio.pause();
-                    this.audio.src = newSrc;
-                    this.audio.load();
-                    this._lastPlayedIndex = this.currentIndex;
-                }
-
-                const p = this.audio.play();
-                if (p !== undefined) {
-                    p.then(() => {
-                        this._loading = false;
-                        this.isPlaying = true;
-                        this.updatePlayerUI();
-                        this.updateButton();
-                        console.log('🎵 Now playing:', track.title, 'by', track.artist);
-                    }).catch(err => {
-                        this._loading = false;
-                        this.isPlaying = false;
-                        if (err.name === 'AbortError') {
-                            // Interrupted by src change — not a real error, just update UI
-                            this.updatePlayerUI();
-                        } else if (err.name === 'NotAllowedError') {
-                            // Browser autoplay policy — silently wait for user gesture
-                            console.info('🎵 Waiting for user interaction to start audio');
-                            this.updatePlayerUI();
-                        } else {
-                            console.warn('🎵 Play failed:', err.message);
-                            this.updatePlayerUI();
-                        }
-                    });
-                } else {
-                    // Older browser — assume playing
-                    this._loading = false;
-                    this.isPlaying = true;
-                    this.updatePlayerUI();
-                }
+                const gen = ++this._playGen;
+                this._lastPlayedIndex = this.currentIndex;
+                this.isPlaying = false;
+                this._loadTrackUrl(track, this._candidateUrls(track.file)[0], gen);
             }
 
             pause() {
