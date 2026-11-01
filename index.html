@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FRACTURED UNIVERSE - Space RTS MMO</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Oxanium:wght@400;600;700&display=swap');
         
         * {
             margin: 0;
@@ -14,25 +14,35 @@
         }
         
         :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #131927;
-            --bg-tertiary: #1a2332;
-            --accent-primary: #00d9ff;
-            --accent-secondary: #00ff88;
-            --accent-warning: #ff9500;
-            --accent-danger: #ff3366;
-            --text-primary: #e8f0ff;
-            --text-secondary: #8ba3c7;
-            --border-color: rgba(0, 217, 255, 0.2);
-            --glow: 0 0 20px rgba(0, 217, 255, 0.4);
+            --bg-primary: #030712;
+            --bg-secondary: rgba(8, 14, 28, 0.82);
+            --bg-tertiary: rgba(14, 24, 44, 0.92);
+            --bg-solid: #07101f;
+            --accent-primary: #22e3ff;
+            --accent-secondary: #3dffa8;
+            --accent-warning: #ffb020;
+            --accent-danger: #ff3d6e;
+            --text-primary: #eef6ff;
+            --text-secondary: #8aa0bf;
+            --border-color: rgba(34, 227, 255, 0.22);
+            --border-strong: rgba(34, 227, 255, 0.45);
+            --glow: 0 0 24px rgba(34, 227, 255, 0.18);
+            --panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+            --hud-radius: 14px;
+            --glass: blur(16px) saturate(140%);
         }
         
         body {
-            font-family: 'Rajdhani', sans-serif;
-            background: var(--bg-primary);
+            font-family: 'Rajdhani', 'Oxanium', sans-serif;
+            background:
+                radial-gradient(1200px 600px at 12% -10%, rgba(34, 227, 255, 0.10), transparent 55%),
+                radial-gradient(900px 500px at 88% 0%, rgba(61, 255, 168, 0.07), transparent 50%),
+                radial-gradient(800px 700px at 50% 110%, rgba(20, 80, 160, 0.12), transparent 55%),
+                var(--bg-primary);
             color: var(--text-primary);
             overflow: hidden;
             height: 100vh;
+            letter-spacing: 0.2px;
         }
         
         /* Animated background */
@@ -42,25 +52,27 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: 
-                radial-gradient(2px 2px at 20% 30%, white, transparent),
-                radial-gradient(2px 2px at 60% 70%, white, transparent),
-                radial-gradient(1px 1px at 50% 50%, white, transparent),
-                radial-gradient(1px 1px at 80% 10%, white, transparent),
-                radial-gradient(2px 2px at 90% 60%, white, transparent),
-                radial-gradient(1px 1px at 33% 85%, white, transparent),
-                radial-gradient(1px 1px at 15% 60%, white, transparent);
-            background-size: 200% 200%;
+            background:
+                radial-gradient(1.5px 1.5px at 12% 22%, rgba(255,255,255,0.9), transparent),
+                radial-gradient(1.5px 1.5px at 28% 68%, rgba(180,230,255,0.8), transparent),
+                radial-gradient(1px 1px at 48% 40%, rgba(255,255,255,0.7), transparent),
+                radial-gradient(1px 1px at 72% 18%, rgba(180,255,230,0.7), transparent),
+                radial-gradient(2px 2px at 86% 58%, rgba(255,255,255,0.85), transparent),
+                radial-gradient(1px 1px at 63% 82%, rgba(200,230,255,0.65), transparent),
+                radial-gradient(1px 1px at 18% 88%, rgba(255,255,255,0.55), transparent),
+                radial-gradient(ellipse 50% 35% at 70% 25%, rgba(34,227,255,0.08), transparent),
+                radial-gradient(ellipse 40% 30% at 20% 70%, rgba(61,255,168,0.05), transparent);
+            background-size: 200% 200%, 200% 200%, 200% 200%, 200% 200%, 200% 200%, 200% 200%, 200% 200%, 100% 100%, 100% 100%;
             background-position: 0% 0%;
-            animation: stars 120s linear infinite;
-            opacity: 0.3;
+            animation: stars 140s linear infinite;
+            opacity: 0.55;
             z-index: -1;
             pointer-events: none;
         }
         
         @keyframes stars {
-            0% { background-position: 0% 0%; }
-            100% { background-position: 200% 200%; }
+            0% { background-position: 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%, 0% 0%; }
+            100% { background-position: 200% 200%, -180% 160%, 160% -140%, -120% 180%, 140% 120%, -160% -100%, 100% 200%, 0% 0%, 0% 0%; }
         }
         
         .container {
@@ -69,23 +81,44 @@
             display: grid;
             grid-template-columns: 320px 1fr 380px;
             grid-template-rows: 80px 1fr 200px;
-            gap: 12px;
-            padding: 12px;
+            gap: 14px;
+            padding: 14px;
         }
         
         /* Header */
         .header {
             grid-column: 1 / -1;
-            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+            background:
+                linear-gradient(180deg, rgba(34,227,255,0.08), transparent 40%),
+                linear-gradient(135deg, rgba(10,18,34,0.92) 0%, rgba(12,22,40,0.88) 100%);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 8px 16px;
+            border-radius: var(--hud-radius);
+            padding: 8px 18px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: var(--glow);
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
             animation: slideDown 0.6s ease-out;
             min-height: 60px;
+            position: relative;
+            overflow: hidden;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 3px;
+            background: linear-gradient(180deg, var(--accent-primary), transparent 70%);
+            opacity: 0.9;
+        }
+        .header::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(34,227,255,0.55), transparent);
         }
         
         @keyframes slideDown {
@@ -97,11 +130,12 @@
             font-family: 'Orbitron', sans-serif;
             font-size: 20px;
             font-weight: 900;
-            letter-spacing: 2px;
-            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            letter-spacing: 3px;
+            background: linear-gradient(105deg, #9af7ff 0%, var(--accent-primary) 40%, var(--accent-secondary) 100%);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 30px rgba(0, 217, 255, 0.5);
+            filter: drop-shadow(0 0 18px rgba(34, 227, 255, 0.25));
             min-width: 200px;
         }
         
@@ -500,12 +534,17 @@
         /* Left Panel - Planets */
         .left-panel {
             grid-row: 2 / 4;
-            background: var(--bg-secondary);
+            background:
+                linear-gradient(180deg, rgba(34,227,255,0.06), transparent 28%),
+                var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: var(--hud-radius);
             padding: 20px;
             overflow-y: auto;
             animation: slideRight 0.6s ease-out 0.1s backwards;
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
         }
         
         @keyframes slideRight {
@@ -515,36 +554,48 @@
         
         .panel-title {
             font-family: 'Orbitron', sans-serif;
-            font-size: 18px;
+            font-size: 15px;
             font-weight: 700;
             margin-bottom: 16px;
             padding-bottom: 12px;
-            border-bottom: 2px solid var(--accent-primary);
+            border-bottom: 1px solid transparent;
+            border-image: linear-gradient(90deg, var(--accent-primary), transparent 80%) 1;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 2.5px;
+            color: var(--text-primary);
+            position: relative;
+        }
+        .panel-title::after {
+            content: '';
+            position: absolute;
+            left: 0; bottom: -1px;
+            width: 42px; height: 2px;
+            background: var(--accent-primary);
+            box-shadow: 0 0 12px rgba(34,227,255,0.5);
         }
         
         .scout-btn {
             width: 100%;
             padding: 14px;
-            background: linear-gradient(135deg, var(--accent-primary), #0088cc);
-            border: none;
-            border-radius: 6px;
-            color: white;
+            background: linear-gradient(135deg, rgba(34,227,255,0.95), rgba(0,140,190,0.95));
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 10px;
+            color: #021018;
             font-family: 'Orbitron', sans-serif;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
             cursor: pointer;
             margin-bottom: 20px;
-            transition: all 0.3s;
-            box-shadow: 0 4px 20px rgba(0, 217, 255, 0.3);
+            transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
+            box-shadow: 0 8px 24px rgba(34, 227, 255, 0.22);
         }
         
         .scout-btn:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 30px rgba(0, 217, 255, 0.5);
+            filter: brightness(1.08);
+            box-shadow: 0 10px 28px rgba(34, 227, 255, 0.32);
         }
         
         .planet-list {
@@ -677,17 +728,19 @@
         /* Center - Galaxy Map */
         .galaxy-map {
             grid-row: 2;
-            background: #0a0e27;
+            background:
+                radial-gradient(ellipse at center, #0a1630 0%, #040912 70%);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: var(--hud-radius);
             position: relative;
             overflow: hidden;
             animation: zoomIn 0.6s ease-out 0.2s backwards;
             cursor: grab;
+            box-shadow: var(--panel-shadow), inset 0 0 80px rgba(34,227,255,0.04);
         }
         .galaxy-map:active { cursor: grabbing; }
         
-        /* Star field layers */
+        /* Star field layers — ice/cyan nebula (no purple cast) */
         .galaxy-map::before {
             content: '';
             position: absolute;
@@ -696,11 +749,11 @@
             width: 100%;
             height: 100%;
             background: 
-                radial-gradient(ellipse at 20% 30%, rgba(138, 43, 226, 0.15) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 70%, rgba(0, 100, 255, 0.12) 0%, transparent 50%),
-                radial-gradient(ellipse at 50% 50%, rgba(255, 0, 128, 0.08) 0%, transparent 60%),
-                radial-gradient(ellipse at 70% 20%, rgba(0, 255, 200, 0.1) 0%, transparent 45%);
-            opacity: 0.8;
+                radial-gradient(ellipse at 18% 28%, rgba(34, 227, 255, 0.14) 0%, transparent 50%),
+                radial-gradient(ellipse at 82% 72%, rgba(40, 120, 255, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 48% 55%, rgba(61, 255, 168, 0.07) 0%, transparent 55%),
+                radial-gradient(ellipse at 70% 18%, rgba(120, 210, 255, 0.10) 0%, transparent 45%);
+            opacity: 0.85;
             pointer-events: none;
             z-index: 1;
         }
@@ -714,14 +767,14 @@
             width: 200%;
             height: 200%;
             background: 
-                radial-gradient(circle at 30% 40%, rgba(138, 43, 226, 0.3) 0%, transparent 25%),
-                radial-gradient(circle at 70% 60%, rgba(0, 150, 255, 0.25) 0%, transparent 30%),
-                radial-gradient(circle at 50% 80%, rgba(255, 100, 150, 0.2) 0%, transparent 28%),
-                radial-gradient(circle at 85% 25%, rgba(0, 255, 200, 0.22) 0%, transparent 26%);
+                radial-gradient(circle at 30% 40%, rgba(34, 180, 255, 0.22) 0%, transparent 25%),
+                radial-gradient(circle at 70% 60%, rgba(20, 120, 220, 0.20) 0%, transparent 30%),
+                radial-gradient(circle at 50% 80%, rgba(61, 255, 168, 0.12) 0%, transparent 28%),
+                radial-gradient(circle at 85% 25%, rgba(100, 220, 255, 0.18) 0%, transparent 26%);
             animation: nebulaDrift 120s linear infinite;
             pointer-events: none;
             z-index: 1;
-            opacity: 0.6;
+            opacity: 0.55;
         }
         
         @keyframes nebulaDrift {
@@ -774,12 +827,17 @@
         /* Fleet Management */
         .fleet-panel {
             grid-row: 3;
-            background: var(--bg-secondary);
+            background:
+                linear-gradient(0deg, rgba(61,255,168,0.04), transparent 35%),
+                var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: var(--hud-radius);
             padding: 20px;
             overflow-y: auto;
             animation: slideUp 0.6s ease-out 0.3s backwards;
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
         }
         
         @keyframes slideUp {
@@ -1189,12 +1247,17 @@
         /* Right Panel - Details */
         .right-panel {
             grid-row: 2 / 4;
-            background: var(--bg-secondary);
+            background:
+                linear-gradient(180deg, rgba(34,227,255,0.05), transparent 28%),
+                var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: var(--hud-radius);
             padding: 20px;
             overflow-y: auto;
             animation: slideLeft 0.6s ease-out 0.1s backwards;
+            box-shadow: var(--panel-shadow);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
         }
         
         @keyframes slideLeft {
@@ -2084,14 +2147,17 @@
             right: 20px;
             width: 380px;
             height: 500px;
-            background: var(--bg-secondary);
+            background: rgba(8, 14, 28, 0.88);
             border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: var(--glow), 0 10px 40px rgba(0, 0, 0, 0.5);
+            border-radius: var(--hud-radius);
+            box-shadow: var(--panel-shadow), 0 0 0 1px rgba(255,255,255,0.03);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
             display: flex;
             flex-direction: column;
             z-index: 1000;
             animation: slideInUp 0.4s ease-out;
+            overflow: hidden;
         }
         
         @keyframes slideInUp {
@@ -3078,10 +3144,15 @@
         .account-modal-content {
             max-width: 600px;
             margin: 80px auto;
-            background: var(--bg-secondary);
-            border: 2px solid var(--accent-primary);
-            border-radius: 12px;
+            background:
+                linear-gradient(180deg, rgba(34,227,255,0.08), transparent 30%),
+                rgba(8, 14, 28, 0.94);
+            border: 1px solid var(--border-strong);
+            border-radius: 18px;
             padding: 30px;
+            box-shadow: var(--panel-shadow), 0 0 60px rgba(34,227,255,0.08);
+            backdrop-filter: var(--glass);
+            -webkit-backdrop-filter: var(--glass);
         }
 
         .account-modal-header {
@@ -3163,18 +3234,19 @@
             align-items: center;
             gap: 4px;
             padding: 8px 12px;
-            background: rgba(0, 217, 255, 0.1);
+            background: rgba(34, 227, 255, 0.06);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
+            border-radius: 10px;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
             margin-right: 8px;
         }
 
         .header-button:hover {
-            background: rgba(0, 217, 255, 0.2);
+            background: rgba(34, 227, 255, 0.14);
             border-color: var(--accent-primary);
             transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(34,227,255,0.12);
         }
 
         .header-button-icon {
@@ -4977,9 +5049,170 @@
     }
     </style>
     <style>
-        .login-tab { flex:1;padding:10px;border-radius:8px 8px 0 0;font-weight:700;cursor:pointer;font-size:13px;letter-spacing:1px;
-            background:rgba(255,255,255,0.04);border:1px solid var(--border-color);color:var(--text-secondary); }
-        .login-tab.active { background:rgba(0,217,255,0.12);border-color:var(--accent-primary);color:var(--accent-primary); }
+        .login-tab { flex:1;padding:12px;border-radius:12px 12px 0 0;font-weight:700;cursor:pointer;font-size:12px;letter-spacing:1.5px;
+            font-family:'Orbitron',sans-serif;background:rgba(255,255,255,0.03);border:1px solid var(--border-color);color:var(--text-secondary);
+            transition: background 0.2s, color 0.2s, border-color 0.2s; }
+        .login-tab.active { background:rgba(34,227,255,0.12);border-color:var(--accent-primary);color:var(--accent-primary);
+            box-shadow: inset 0 -2px 0 var(--accent-primary); }
+
+        /* ===== FUTURISTIC HUD POLISH ===== */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(34,227,255,0.45), rgba(61,255,168,0.25));
+            border-radius: 8px; border: 1px solid rgba(34,227,255,0.2);
+        }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(34,227,255,0.55); }
+
+        .resource {
+            padding: 4px 10px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
+            min-width: 72px;
+        }
+        .resource-label { font-family: 'Oxanium', 'Rajdhani', sans-serif; opacity: 0.9; }
+        .resource-value { font-family: 'Oxanium', 'Orbitron', sans-serif; letter-spacing: 0.5px; }
+
+        .map-btn, .action-btn, .chat-control-btn, .chat-send-btn {
+            border-radius: 10px !important;
+            backdrop-filter: blur(10px);
+        }
+        .action-btn {
+            background: linear-gradient(135deg, rgba(61,255,168,0.18), rgba(61,255,168,0.06)) !important;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+        }
+        .action-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(61,255,168,0.15); }
+
+        .progress-bar {
+            height: 7px !important;
+            background: rgba(34,227,255,0.08) !important;
+            border-radius: 999px !important;
+            overflow: hidden;
+        }
+        .progress-fill {
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary)) !important;
+            box-shadow: 0 0 12px rgba(34,227,255,0.35) !important;
+        }
+
+        .research-item, .planet-card, .race-tech-item, .admin-player-card {
+            background: rgba(255,255,255,0.03) !important;
+            border-radius: 12px !important;
+            border-color: rgba(34,227,255,0.14) !important;
+            transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease !important;
+        }
+        .planet-card:hover, .research-item:hover {
+            border-color: rgba(34,227,255,0.35) !important;
+            background: rgba(34,227,255,0.05) !important;
+        }
+
+        .notification {
+            background: rgba(8,14,28,0.92) !important;
+            border-radius: 12px !important;
+            backdrop-filter: blur(14px);
+            border-color: var(--border-strong) !important;
+            box-shadow: var(--panel-shadow) !important;
+        }
+
+        #raceStartupBox {
+            background:
+                linear-gradient(180deg, rgba(34,227,255,0.08), transparent 24%),
+                rgba(8,14,28,0.96) !important;
+            border-radius: 20px !important;
+            border: 1px solid var(--border-strong) !important;
+            box-shadow: var(--panel-shadow), 0 0 80px rgba(34,227,255,0.08) !important;
+            backdrop-filter: blur(18px);
+        }
+
+        .header-commanders-btn {
+            border-radius: 10px !important;
+            background: linear-gradient(135deg, rgba(255,215,0,0.16), rgba(255,170,0,0.08)) !important;
+            border: 1px solid rgba(255,215,0,0.35) !important;
+            letter-spacing: 1px;
+        }
+
+        .login-shell {
+            width: 100%;
+            max-width: 440px;
+            position: relative;
+        }
+        .login-shell::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: 22px;
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(34,227,255,0.55), rgba(61,255,168,0.15), rgba(34,227,255,0.2));
+            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+        }
+        .login-brand {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .login-brand-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: clamp(26px, 4vw, 34px);
+            font-weight: 900;
+            letter-spacing: 4px;
+            background: linear-gradient(105deg, #9af7ff, var(--accent-primary) 45%, var(--accent-secondary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 24px rgba(34,227,255,0.28));
+            line-height: 1.15;
+        }
+        .login-brand-sub {
+            font-family: 'Oxanium', 'Rajdhani', sans-serif;
+            font-size: 12px;
+            color: var(--text-secondary);
+            letter-spacing: 3px;
+            margin-top: 10px;
+            text-transform: uppercase;
+        }
+        .login-card {
+            background: rgba(8,14,28,0.78);
+            border: 1px solid var(--border-color);
+            border-radius: 0 0 18px 18px;
+            padding: 22px;
+            backdrop-filter: blur(18px) saturate(140%);
+            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            box-shadow: var(--panel-shadow);
+        }
+        .login-card input {
+            background: rgba(3,7,18,0.85) !important;
+            border: 1px solid rgba(34,227,255,0.18) !important;
+            border-radius: 10px !important;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .login-card input:focus {
+            outline: none;
+            border-color: var(--accent-primary) !important;
+            box-shadow: 0 0 0 3px rgba(34,227,255,0.15);
+        }
+        .login-primary-btn {
+            width: 100%;
+            padding: 14px !important;
+            border: 1px solid rgba(255,255,255,0.15) !important;
+            border-radius: 12px !important;
+            font-family: 'Orbitron', sans-serif !important;
+            font-weight: 900 !important;
+            letter-spacing: 1.5px !important;
+            cursor: pointer;
+            transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 10px 28px rgba(34,227,255,0.22);
+        }
+        .login-primary-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+
+        #loginScreen {
+            background:
+                radial-gradient(900px 500px at 50% -10%, rgba(34,227,255,0.16), transparent 60%),
+                radial-gradient(700px 500px at 80% 100%, rgba(61,255,168,0.08), transparent 55%),
+                radial-gradient(ellipse at center, #0a1428 0%, #030712 70%) !important;
+        }
     </style>
 </head>
 <body>
@@ -4990,31 +5223,30 @@
          see handleLogin()/handleRegister() in the main script for the logic this
          markup drives. Hidden automatically once a session starts. -->
     <div id="loginScreen" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:100000;
-        background:radial-gradient(ellipse at center, var(--bg-tertiary) 0%, var(--bg-primary) 100%);
         display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;overflow-y:auto;">
-        <div style="width:100%;max-width:420px;">
-            <div style="text-align:center;margin-bottom:24px;">
-                <div style="font-size:28px;font-weight:900;letter-spacing:3px;color:var(--accent-primary);text-shadow:var(--glow);">FRACTURED UNIVERSE</div>
-                <div style="font-size:12px;color:var(--text-secondary);letter-spacing:2px;margin-top:4px;">COMMAND YOUR EMPIRE</div>
+        <div class="login-shell">
+            <div class="login-brand">
+                <div class="login-brand-title">FRACTURED UNIVERSE</div>
+                <div class="login-brand-sub">Command your empire</div>
             </div>
 
-            <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <div style="display:flex;gap:8px;margin-bottom:0;">
                 <button class="login-tab active" id="loginTabBtn" onclick="window.auth.switchTab('login')">LOGIN</button>
                 <button class="login-tab" id="registerTabBtn" onclick="window.auth.switchTab('register')">REGISTER</button>
             </div>
 
             <!-- ── Login form ── -->
-            <div id="loginForm" style="background:rgba(255,255,255,0.03);border:1px solid var(--border-color);border-radius:0 0 10px 10px;padding:20px;">
+            <div id="loginForm" class="login-card">
                 <div id="loginError" style="display:none;background:rgba(255,51,102,0.12);border:1px solid var(--accent-danger);color:var(--accent-danger);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px;"></div>
                 <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">USERNAME</label>
                 <input type="text" id="loginUsername" autocomplete="username" style="width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:13px;">
                 <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">PASSWORD</label>
                 <input type="password" id="loginPassword" autocomplete="current-password" onkeydown="if(event.key==='Enter')handleLogin()" style="width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:16px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:13px;">
-                <button onclick="handleLogin()" style="width:100%;padding:12px;background:linear-gradient(135deg,var(--accent-primary),#0088aa);border:none;border-radius:6px;color:#001018;font-weight:900;font-size:13px;letter-spacing:1px;cursor:pointer;">ENTER THE UNIVERSE</button>
+                <button class="login-primary-btn" onclick="handleLogin()" style="background:linear-gradient(135deg,var(--accent-primary),#0090b8);color:#021018;font-size:13px;">ENTER THE UNIVERSE</button>
             </div>
 
             <!-- ── Register form ── -->
-            <div id="registerForm" style="display:none;background:rgba(255,255,255,0.03);border:1px solid var(--border-color);border-radius:0 0 10px 10px;padding:20px;">
+            <div id="registerForm" class="login-card" style="display:none;">
                 <div id="registerError" style="display:none;background:rgba(255,51,102,0.12);border:1px solid var(--accent-danger);color:var(--accent-danger);padding:8px 12px;border-radius:6px;font-size:12px;margin-bottom:12px;"></div>
                 <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:4px;">USERNAME</label>
                 <input type="text" id="registerUsername" autocomplete="username" style="width:100%;box-sizing:border-box;padding:10px 12px;margin-bottom:10px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:13px;">
@@ -5028,11 +5260,11 @@
                 <label style="display:block;font-size:11px;color:var(--text-secondary);margin-bottom:6px;">CHOOSE YOUR RACE</label>
                 <div id="raceOptions" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;max-height:220px;overflow-y:auto;"></div>
 
-                <button onclick="handleRegister()" style="width:100%;padding:12px;background:linear-gradient(135deg,var(--accent-secondary),#00aa55);border:none;border-radius:6px;color:#001a0d;font-weight:900;font-size:13px;letter-spacing:1px;cursor:pointer;">FOUND YOUR EMPIRE</button>
+                <button class="login-primary-btn" onclick="handleRegister()" style="background:linear-gradient(135deg,var(--accent-secondary),#00a86a);color:#02180e;font-size:13px;">FOUND YOUR EMPIRE</button>
             </div>
 
-            <div style="text-align:center;margin-top:14px;">
-                <button onclick="window.playAsGuest && window.playAsGuest()" style="background:none;border:none;color:var(--text-secondary);font-size:11px;cursor:pointer;text-decoration:underline;">Just testing? Play as guest (no account, progress won't be saved)</button>
+            <div style="text-align:center;margin-top:18px;">
+                <button onclick="window.playAsGuest && window.playAsGuest()" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:999px;color:var(--text-secondary);font-size:11px;cursor:pointer;padding:8px 16px;letter-spacing:0.5px;">Just testing? Play as guest</button>
             </div>
         </div>
     </div>
@@ -25000,7 +25232,7 @@ const SHIP_IMAGE_DATA = {
         
         function playThemeMusic() {
             if (!themeMusic) {
-                themeMusic = new Audio('audio/Theme.mp3');
+                themeMusic = new Audio('assets/the_mountain-ambient-487008.mp3');
                 themeMusic.volume = 0.5;
                 themeMusic.loop = false;
             }
@@ -26674,13 +26906,13 @@ const SHIP_IMAGE_DATA = {
                     { file: 'assets/asset_056.mp3', title: 'Ready for Victory', artist: 'Emmraan' },
                     { file: 'assets/asset_057.mp3', title: 'Ready to Fight', artist: 'Emmraan' },
                     { file: 'assets/asset_058.mp3', title: 'Vengeance', artist: 'Emmraan' },
-                    { file: 'audio/viacheslavstarostin-space-cinematic-ambient-music-340845.mp3',   title: 'Space Cinematic I',         artist: 'Viacheslav Starostin' },
-                    { file: 'audio/lofidreams-nebula-ambient-background-music-403504.mp3',          title: 'Nebula Ambient',            artist: 'LofiDreams' },
-                    { file: 'audio/the_mountain-space-438391.mp3',                                  title: 'Space',                     artist: 'The Mountain' },
-                    { file: 'audio/viacheslavstarostin-ambient-space-cinematic-music-370754.mp3',   title: 'Ambient Space Cinematic',   artist: 'Viacheslav Starostin' },
-                    { file: 'audio/the_mountain-ambient-487008.mp3',                                title: 'Ambient',                   artist: 'The Mountain' },
-                    { file: 'audio/universfield-ambient-space-arpeggio-350710.mp3',                 title: 'Space Arpeggio',            artist: 'Universfield' },
-                    { file: 'audio/viacheslavstarostin-space-cinematic-ambient-music-340845__1_.mp3', title: 'Space Cinematic II',      artist: 'Viacheslav Starostin' },
+                    { file: 'assets/viacheslavstarostin-space-cinematic-ambient-music-340845.mp3',   title: 'Space Cinematic I',         artist: 'Viacheslav Starostin' },
+                    { file: 'assets/lofidreams-nebula-ambient-background-music-403504.mp3',          title: 'Nebula Ambient',            artist: 'LofiDreams' },
+                    { file: 'assets/the_mountain-space-438391.mp3',                                  title: 'Space',                     artist: 'The Mountain' },
+                    { file: 'assets/viacheslavstarostin-ambient-space-cinematic-music-370754.mp3',   title: 'Ambient Space Cinematic',   artist: 'Viacheslav Starostin' },
+                    { file: 'assets/the_mountain-ambient-487008.mp3',                                title: 'Ambient',                   artist: 'The Mountain' },
+                    { file: 'assets/universfield-ambient-space-arpeggio-350710.mp3',                 title: 'Space Arpeggio',            artist: 'Universfield' },
+                    { file: 'assets/viacheslavstarostin-space-cinematic-ambient-music-340845__1_.mp3', title: 'Space Cinematic II',      artist: 'Viacheslav Starostin' },
                 ];
 
                 // ── Playlist: all base tracks available from the start ─────
@@ -26694,6 +26926,8 @@ const SHIP_IMAGE_DATA = {
                 this.playerPanelOpen = false;
                 this._loading        = false; // lock to prevent concurrent play calls
                 this._lastPlayedIndex = -1;  // track which index is loaded
+                this._brokenTracks    = new Set(); // files that failed to load
+                this._skipGuardUntil  = 0;
 
                 // 'ended' — advance to next track naturally
                 this.audio.addEventListener('ended', () => {
@@ -26703,14 +26937,20 @@ const SHIP_IMAGE_DATA = {
                 });
 
                 // 'error' — only skip on genuine file errors, not abort
-                this.audio.addEventListener('error', (e) => {
+                this.audio.addEventListener('error', () => {
                     // MediaError code 1 = MEDIA_ERR_ABORTED (src change mid-load) — ignore
                     if (this.audio.error && this.audio.error.code === 1) return;
-                    console.warn('🎵 Audio error on track, skipping:', this.tracks[this.playlist[this.currentIndex]]?.file);
+                    const track = this.tracks[this.playlist[this.currentIndex]];
+                    const file = track?.file;
+                    console.warn('🎵 Audio error on track, skipping:', file, this.audio.error?.code);
+                    if (file) this._brokenTracks.add(file);
                     this._loading = false;
                     this.isPlaying = false;
                     // Skip after a short delay to prevent runaway loops
-                    setTimeout(() => this.playNext(), 1500);
+                    const now = Date.now();
+                    if (now < this._skipGuardUntil) return;
+                    this._skipGuardUntil = now + 400;
+                    setTimeout(() => this.playNext(), 350);
                 });
 
                 this.audio.addEventListener('timeupdate', () => this.updateProgress());
@@ -26740,17 +26980,44 @@ const SHIP_IMAGE_DATA = {
                     localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(Object.values(byFile)));
                 }
 
-                // Load any bonus tracks saved from disc discoveries
+                // Load any bonus tracks saved from disc discoveries (repair legacy audio/ paths)
                 const saved = localStorage.getItem('fu_audio_bonus_tracks');
                 if (saved) {
                     try {
                         const bonus = JSON.parse(saved);
-                        bonus.forEach(t => { this.tracks.push(t); this.playlist.push(this.tracks.length - 1); });
+                        const repaired = [];
+                        bonus.forEach(t => {
+                            if (!t || !t.file) return;
+                            const fixed = Object.assign({}, t, { file: this._normalizeTrackPath(t.file) });
+                            this.tracks.push(fixed);
+                            this.playlist.push(this.tracks.length - 1);
+                            repaired.push(fixed);
+                        });
+                        localStorage.setItem('fu_audio_bonus_tracks', JSON.stringify(repaired));
                     } catch(e) {}
                 }
 
+                // One-time migrate any leftover audio/ references in the disc pool storage
+                try {
+                    const pool = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]');
+                    const migrated = pool.map(t => t && t.file ? Object.assign({}, t, { file: this._normalizeTrackPath(t.file) }) : t).filter(Boolean);
+                    localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(migrated));
+                } catch (e) {}
+
                 this.updateButton();
                 console.log('🎵 Audio Manager initialized');
+            }
+
+            _normalizeTrackPath(file) {
+                if (!file || typeof file !== 'string') return file;
+                // Legacy builds pointed playlist files at missing audio/ — files live in assets/
+                if (file.startsWith('audio/')) {
+                    const name = file.slice(6);
+                    // Theme was never shipped; keep LootMusic/assets mapping for known packs
+                    if (name.toLowerCase() === 'theme.mp3') return 'assets/the_mountain-ambient-487008.mp3';
+                    return 'assets/' + name;
+                }
+                return file;
             }
 
             init() {
@@ -26760,11 +27027,29 @@ const SHIP_IMAGE_DATA = {
             play(index) {
                 // Prevent concurrent calls from stacking
                 if (this._loading) return;
+                if (!this.playlist.length) return;
 
                 if (index !== undefined) this.currentIndex = index;
+                // Skip known-broken entries instead of thrashing the error loop
+                let attempts = 0;
+                while (attempts < this.playlist.length) {
+                    const trackIdx = this.playlist[this.currentIndex];
+                    const candidate = this.tracks[trackIdx];
+                    if (candidate && candidate.file && !this._brokenTracks.has(candidate.file)) break;
+                    this.currentIndex = (this.currentIndex + 1) % this.playlist.length;
+                    attempts++;
+                }
+                if (attempts >= this.playlist.length) {
+                    console.warn('🎵 No playable tracks left in playlist');
+                    this.isPlaying = false;
+                    this.updatePlayerUI();
+                    return;
+                }
+
                 const trackIdx = this.playlist[this.currentIndex];
                 const track = this.tracks[trackIdx];
                 if (!track) return;
+                track.file = this._normalizeTrackPath(track.file);
 
                 this._loading = true;
 
@@ -26775,6 +27060,7 @@ const SHIP_IMAGE_DATA = {
                 if (!isSameTrack) {
                     this.audio.pause();
                     this.audio.src = newSrc;
+                    this.audio.load();
                     this._lastPlayedIndex = this.currentIndex;
                 }
 
