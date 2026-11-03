@@ -27,9 +27,10 @@
             --border-color: rgba(34, 227, 255, 0.22);
             --border-strong: rgba(34, 227, 255, 0.45);
             --glow: 0 0 24px rgba(34, 227, 255, 0.18);
-            --panel-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.04);
-            --hud-radius: 14px;
-            --glass: blur(16px) saturate(140%);
+            --panel-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.04);
+            --hud-radius: 6px;
+            --glass: none;
+            --hud-chamfer: none;
         }
         
         body {
@@ -79,10 +80,11 @@
             position: relative;
             height: 100vh;
             display: grid;
-            grid-template-columns: 320px 1fr 380px;
-            grid-template-rows: 80px 1fr 200px;
-            gap: 14px;
-            padding: 14px;
+            grid-template-columns: 300px 1fr 360px;
+            grid-template-rows: 64px 1fr 180px;
+            gap: 10px;
+            padding: 10px;
+            z-index: 2;
         }
         
         /* Header */
@@ -98,8 +100,8 @@
             align-items: center;
             justify-content: space-between;
             box-shadow: var(--panel-shadow);
-            backdrop-filter: var(--glass);
-            -webkit-backdrop-filter: var(--glass);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
             animation: slideDown 0.6s ease-out;
             min-height: 60px;
             position: relative;
@@ -587,7 +589,7 @@
             text-transform: uppercase;
             letter-spacing: 1.5px;
             cursor: pointer;
-            margin-bottom: 20px;
+            margin-bottom: 0;
             transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
             box-shadow: 0 8px 24px rgba(34, 227, 255, 0.22);
         }
@@ -596,6 +598,109 @@
             transform: translateY(-2px);
             filter: brightness(1.08);
             box-shadow: 0 10px 28px rgba(34, 227, 255, 0.32);
+        }
+
+        .scout-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            transform: none;
+            filter: none;
+            box-shadow: none;
+        }
+
+        .scout-panel {
+            margin-bottom: 20px;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(34, 227, 255, 0.28);
+            background: linear-gradient(180deg, rgba(8, 24, 40, 0.92), rgba(4, 12, 22, 0.88));
+        }
+
+        .scout-panel-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+            color: #7ee9ff;
+            margin-bottom: 8px;
+        }
+
+        .scout-panel-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+            line-height: 1.45;
+        }
+
+        .scout-qty-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .scout-qty-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            border: 1px solid rgba(34, 227, 255, 0.35);
+            background: rgba(0, 40, 60, 0.7);
+            color: #7ee9ff;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .scout-qty-btn:hover {
+            background: rgba(0, 70, 100, 0.85);
+        }
+
+        .scout-qty-value {
+            flex: 1;
+            text-align: center;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 1px;
+        }
+
+        .scout-cost-line {
+            font-size: 11px;
+            color: #c9e8f5;
+            margin-bottom: 12px;
+            line-height: 1.5;
+            min-height: 34px;
+        }
+
+        .scout-auto-btn {
+            width: 100%;
+            margin-top: 10px;
+            padding: 11px;
+            border-radius: 10px;
+            border: 1px solid rgba(50, 205, 50, 0.45);
+            background: linear-gradient(135deg, rgba(20, 60, 30, 0.95), rgba(10, 35, 18, 0.95));
+            color: #b8ffb8;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: filter 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .scout-auto-btn:hover {
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+        }
+
+        .scout-auto-btn.active {
+            background: linear-gradient(135deg, rgba(50, 205, 50, 0.95), rgba(20, 140, 40, 0.95));
+            color: #041208;
+            border-color: rgba(180, 255, 120, 0.8);
+            box-shadow: 0 0 18px rgba(50, 205, 50, 0.35);
         }
         
         .planet-list {
@@ -5055,163 +5160,274 @@
         .login-tab.active { background:rgba(34,227,255,0.12);border-color:var(--accent-primary);color:var(--accent-primary);
             box-shadow: inset 0 -2px 0 var(--accent-primary); }
 
-        /* ===== FUTURISTIC HUD POLISH ===== */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); border-radius: 8px; }
+        /* ===== GAME HUD (performance-safe) ===== */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.25); }
         ::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, rgba(34,227,255,0.45), rgba(61,255,168,0.25));
-            border-radius: 8px; border: 1px solid rgba(34,227,255,0.2);
+            background: linear-gradient(180deg, rgba(34,227,255,0.55), rgba(61,255,168,0.25));
+            border: 1px solid rgba(34,227,255,0.25);
         }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(34,227,255,0.55); }
+
+        .game-vignette {
+            position: fixed; inset: 0; z-index: 1; pointer-events: none;
+            background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.45) 100%);
+        }
+        .hud-frame {
+            position: fixed; inset: 8px; z-index: 1; pointer-events: none;
+            border: 1px solid rgba(34,227,255,0.12);
+        }
+        .hud-frame::before, .hud-frame::after,
+        .hud-corner-tr, .hud-corner-bl {
+            content: ''; position: absolute; width: 36px; height: 36px;
+            border: 2px solid rgba(34,227,255,0.55); opacity: 0.65;
+        }
+        .hud-frame::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+        .hud-frame::after { right: -1px; bottom: -1px; border-left: none; border-top: none; content: ''; }
+        .hud-corner-tr { top: -1px; right: -1px; border-left: none; border-bottom: none; border-color: rgba(61,255,168,0.45); }
+        .hud-corner-bl { bottom: -1px; left: -1px; border-right: none; border-top: none; border-color: rgba(61,255,168,0.45); }
+
+        /* Solid panels — no blur, no 3D tilt, no clip-path (keeps clicks + FPS stable) */
+        .header,
+        .left-panel,
+        .right-panel,
+        .fleet-panel,
+        .account-modal-content,
+        #raceStartupBox {
+            border-radius: 6px !important;
+            border: 1px solid rgba(34,227,255,0.28) !important;
+            background: linear-gradient(180deg, rgba(12,20,38,0.97), rgba(6,10,22,0.97)) !important;
+            box-shadow: var(--panel-shadow) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            transform: none !important;
+            animation: none !important;
+            clip-path: none !important;
+            filter: none !important;
+        }
+        .header, .left-panel, .right-panel, .fleet-panel {
+            position: relative;
+            z-index: 5;
+            pointer-events: auto !important;
+        }
+        .header button, .left-panel button, .right-panel button, .fleet-panel button,
+        .header .header-button, .scout-btn, .action-btn, .map-btn {
+            pointer-events: auto !important;
+            position: relative;
+            z-index: 2;
+        }
+
+        .chat-window {
+            position: fixed !important;
+            bottom: 20px !important;
+            right: 20px !important;
+            left: auto !important;
+            top: auto !important;
+            width: 380px !important;
+            height: 500px !important;
+            z-index: 25000 !important;
+            border-radius: 6px !important;
+            clip-path: none !important;
+            border: 1px solid rgba(34,227,255,0.35) !important;
+            background: rgba(8,14,28,0.98) !important;
+            box-shadow: var(--panel-shadow) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            transform: none !important;
+            pointer-events: auto !important;
+            overflow: hidden;
+        }
+        .chat-window.minimized { height: 50px !important; }
+        .chat-input-container, .chat-input, .chat-send-btn {
+            pointer-events: auto !important;
+            position: relative;
+            z-index: 2;
+        }
+
+        .galaxy-map {
+            border-radius: 6px !important;
+            clip-path: none !important;
+            border: 1px solid rgba(34,227,255,0.3) !important;
+            box-shadow: var(--panel-shadow) !important;
+            transform: none !important;
+            animation: none !important;
+            z-index: 3;
+        }
+        .galaxy-map::before {
+            background:
+                radial-gradient(ellipse at 20% 30%, rgba(34,227,255,0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 70%, rgba(40,100,255,0.10) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(61,255,168,0.06) 0%, transparent 55%) !important;
+        }
+
+        .logo {
+            letter-spacing: 3px !important;
+            text-transform: uppercase;
+            animation: none !important;
+            filter: drop-shadow(0 0 12px rgba(34,227,255,0.22));
+        }
 
         .resource {
-            padding: 4px 10px;
-            border-radius: 10px;
-            background: rgba(255,255,255,0.03);
-            border: 1px solid rgba(255,255,255,0.05);
+            padding: 5px 10px;
+            border-radius: 4px;
+            clip-path: none;
+            background: rgba(0, 20, 40, 0.55);
+            border: 1px solid rgba(34,227,255,0.2);
             min-width: 72px;
         }
-        .resource-label { font-family: 'Oxanium', 'Rajdhani', sans-serif; opacity: 0.9; }
+        .resource-label { font-family: 'Oxanium', 'Rajdhani', sans-serif; opacity: 0.9; letter-spacing: 1px; }
         .resource-value { font-family: 'Oxanium', 'Orbitron', sans-serif; letter-spacing: 0.5px; }
 
-        .map-btn, .action-btn, .chat-control-btn, .chat-send-btn {
-            border-radius: 10px !important;
-            backdrop-filter: blur(10px);
+        .map-btn, .action-btn, .chat-control-btn, .chat-send-btn, .header-button, .scout-btn, .login-primary-btn {
+            border-radius: 4px !important;
+            clip-path: none !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
         .action-btn {
-            background: linear-gradient(135deg, rgba(61,255,168,0.18), rgba(61,255,168,0.06)) !important;
-            transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease !important;
+            background: linear-gradient(135deg, rgba(61,255,168,0.22), rgba(61,255,168,0.05)) !important;
+            transition: filter 0.15s ease, border-color 0.15s ease !important;
+            transform: none !important;
         }
-        .action-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(61,255,168,0.15); }
+        .action-btn:hover { filter: brightness(1.1); }
 
         .progress-bar {
-            height: 7px !important;
-            background: rgba(34,227,255,0.08) !important;
-            border-radius: 999px !important;
+            height: 6px !important;
+            background: rgba(0,0,0,0.45) !important;
+            border-radius: 3px !important;
             overflow: hidden;
+            border: 1px solid rgba(34,227,255,0.15);
         }
         .progress-fill {
             background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary)) !important;
-            box-shadow: 0 0 12px rgba(34,227,255,0.35) !important;
+            box-shadow: none !important;
         }
+        .progress-fill::after { content: none !important; }
 
         .research-item, .planet-card, .race-tech-item, .admin-player-card {
-            background: rgba(255,255,255,0.03) !important;
-            border-radius: 12px !important;
-            border-color: rgba(34,227,255,0.14) !important;
-            transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease !important;
+            background: rgba(0, 16, 32, 0.55) !important;
+            border-radius: 4px !important;
+            clip-path: none !important;
+            border-color: rgba(34,227,255,0.18) !important;
+            transition: border-color 0.15s ease, background 0.15s ease !important;
+            transform: none !important;
         }
         .planet-card:hover, .research-item:hover {
-            border-color: rgba(34,227,255,0.35) !important;
-            background: rgba(34,227,255,0.05) !important;
+            border-color: rgba(34,227,255,0.45) !important;
+            background: rgba(34,227,255,0.06) !important;
+            box-shadow: none;
+            transform: none !important;
         }
 
         .notification {
-            background: rgba(8,14,28,0.92) !important;
-            border-radius: 12px !important;
-            backdrop-filter: blur(14px);
+            background: rgba(4,10,22,0.96) !important;
+            border-radius: 6px !important;
+            clip-path: none !important;
+            backdrop-filter: none !important;
             border-color: var(--border-strong) !important;
             box-shadow: var(--panel-shadow) !important;
         }
 
-        #raceStartupBox {
-            background:
-                linear-gradient(180deg, rgba(34,227,255,0.08), transparent 24%),
-                rgba(8,14,28,0.96) !important;
-            border-radius: 20px !important;
-            border: 1px solid var(--border-strong) !important;
-            box-shadow: var(--panel-shadow), 0 0 80px rgba(34,227,255,0.08) !important;
-            backdrop-filter: blur(18px);
-        }
-
         .header-commanders-btn {
-            border-radius: 10px !important;
-            background: linear-gradient(135deg, rgba(255,215,0,0.16), rgba(255,170,0,0.08)) !important;
-            border: 1px solid rgba(255,215,0,0.35) !important;
+            border-radius: 4px !important;
+            clip-path: none !important;
+            background: linear-gradient(135deg, rgba(255,215,0,0.2), rgba(255,170,0,0.06)) !important;
+            border: 1px solid rgba(255,215,0,0.4) !important;
             letter-spacing: 1px;
         }
 
         .login-shell {
             width: 100%;
-            max-width: 440px;
+            max-width: 460px;
             position: relative;
+            transform: none;
+            animation: none;
         }
         .login-shell::before {
             content: '';
             position: absolute;
             inset: -1px;
-            border-radius: 22px;
-            padding: 1px;
-            background: linear-gradient(135deg, rgba(34,227,255,0.55), rgba(61,255,168,0.15), rgba(34,227,255,0.2));
-            -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-            mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-            -webkit-mask-composite: xor;
-            mask-composite: exclude;
+            border-radius: 8px;
+            border: 1px solid rgba(34,227,255,0.35);
             pointer-events: none;
+            animation: none;
         }
-        .login-brand {
-            text-align: center;
-            margin-bottom: 28px;
-        }
+        .login-brand { text-align: center; margin-bottom: 28px; }
         .login-brand-title {
             font-family: 'Orbitron', sans-serif;
-            font-size: clamp(26px, 4vw, 34px);
+            font-size: clamp(28px, 5vw, 40px);
             font-weight: 900;
-            letter-spacing: 4px;
+            letter-spacing: 6px;
             background: linear-gradient(105deg, #9af7ff, var(--accent-primary) 45%, var(--accent-secondary));
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            filter: drop-shadow(0 0 24px rgba(34,227,255,0.28));
-            line-height: 1.15;
+            filter: drop-shadow(0 0 18px rgba(34,227,255,0.3));
+            line-height: 1.1;
+            animation: none;
         }
         .login-brand-sub {
             font-family: 'Oxanium', 'Rajdhani', sans-serif;
             font-size: 12px;
             color: var(--text-secondary);
-            letter-spacing: 3px;
-            margin-top: 10px;
+            letter-spacing: 4px;
+            margin-top: 12px;
             text-transform: uppercase;
         }
         .login-card {
-            background: rgba(8,14,28,0.78);
+            background: rgba(4,10,22,0.92);
             border: 1px solid var(--border-color);
-            border-radius: 0 0 18px 18px;
+            border-radius: 0 0 8px 8px;
+            clip-path: none;
             padding: 22px;
-            backdrop-filter: blur(18px) saturate(140%);
-            -webkit-backdrop-filter: blur(18px) saturate(140%);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
             box-shadow: var(--panel-shadow);
         }
         .login-card input {
-            background: rgba(3,7,18,0.85) !important;
-            border: 1px solid rgba(34,227,255,0.18) !important;
-            border-radius: 10px !important;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            background: rgba(0,8,20,0.9) !important;
+            border: 1px solid rgba(34,227,255,0.22) !important;
+            border-radius: 4px !important;
+            clip-path: none !important;
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
         .login-card input:focus {
             outline: none;
             border-color: var(--accent-primary) !important;
-            box-shadow: 0 0 0 3px rgba(34,227,255,0.15);
+            box-shadow: 0 0 0 2px rgba(34,227,255,0.18);
         }
         .login-primary-btn {
             width: 100%;
             padding: 14px !important;
-            border: 1px solid rgba(255,255,255,0.15) !important;
-            border-radius: 12px !important;
+            border: 1px solid rgba(255,255,255,0.18) !important;
             font-family: 'Orbitron', sans-serif !important;
             font-weight: 900 !important;
-            letter-spacing: 1.5px !important;
+            letter-spacing: 2px !important;
             cursor: pointer;
-            transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
-            box-shadow: 0 10px 28px rgba(34,227,255,0.22);
+            transition: filter 0.15s ease;
+            box-shadow: 0 8px 20px rgba(34,227,255,0.18);
+            transform: none !important;
         }
-        .login-primary-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+        .login-primary-btn:hover { filter: brightness(1.08); }
+
+        .login-tab {
+            border-radius: 6px 6px 0 0 !important;
+            clip-path: none !important;
+        }
 
         #loginScreen {
             background:
-                radial-gradient(900px 500px at 50% -10%, rgba(34,227,255,0.16), transparent 60%),
-                radial-gradient(700px 500px at 80% 100%, rgba(61,255,168,0.08), transparent 55%),
-                radial-gradient(ellipse at center, #0a1428 0%, #030712 70%) !important;
+                radial-gradient(1000px 600px at 50% -5%, rgba(34,227,255,0.16), transparent 55%),
+                radial-gradient(800px 500px at 15% 80%, rgba(61,255,168,0.06), transparent 50%),
+                linear-gradient(180deg, #02060f 0%, #071428 45%, #030712 100%) !important;
+            overflow: auto !important;
+        }
+        #loginScreen::before { content: none !important; }
+
+        @media (max-width: 1100px) {
+            .left-panel, .right-panel, .fleet-panel, .galaxy-map, .login-shell {
+                transform: none !important;
+                animation: none !important;
+            }
         }
     </style>
 </head>
@@ -5270,6 +5486,11 @@
     </div>
 
     <div class="space-bg"></div>
+    <div class="game-vignette" aria-hidden="true"></div>
+    <div class="hud-frame" aria-hidden="true">
+        <div class="hud-corner-tr"></div>
+        <div class="hud-corner-bl"></div>
+    </div>
     
     <div class="container">
         <!-- Header -->
@@ -5451,7 +5672,21 @@
             
             <!-- Owned Planets View -->
             <div id="planetViewOwned" class="planet-view">
-                <button class="scout-btn" onclick="window.game.scoutNewPlanet()">🔭 Scout New Planet</button>
+                <div class="scout-panel" id="scoutPanel">
+                    <div class="scout-panel-title">🔭 Scout Planets</div>
+                    <div class="scout-panel-meta" id="scoutPanelMeta">Scout ships available: 0</div>
+                    <div class="scout-qty-row">
+                        <button type="button" class="scout-qty-btn" onclick="window.game.adjustScoutMissionCount(-1)" aria-label="Fewer scout missions">−</button>
+                        <div class="scout-qty-value" id="scoutMissionCountLabel">1×</div>
+                        <button type="button" class="scout-qty-btn" onclick="window.game.adjustScoutMissionCount(1)" aria-label="More scout missions">+</button>
+                    </div>
+                    <div class="scout-cost-line" id="scoutCostLine">Needs 5 scout ships</div>
+                    <button class="scout-btn" id="scoutLaunchBtn" onclick="window.game.scoutNewPlanet()">🔭 Launch Scout</button>
+                    <button type="button" class="scout-auto-btn" id="scoutAutoScanBtn" onclick="window.game.toggleAutoPlanetScan()">
+                        🔁 Auto-Scan for Planets
+                    </button>
+                    <div class="scout-panel-meta" id="scoutAutoScanMeta" style="margin-top:8px;margin-bottom:0;">Off — scans every 20s when enabled</div>
+                </div>
                 
                 <!-- Bounties Button -->
                 <button class="scout-btn" onclick="showBountiesPanel()" style="background: linear-gradient(135deg, #ffaa00, #cc8800); margin-top: 16px; position: relative;">
@@ -7014,7 +7249,7 @@
                 }
             });
         });
-        // Simple lazy-loading image cache shared by the battle animation canvas.
+        // Simple lazy-loading image cache shared by battle + galaxy map.
         const SHIP_IMAGE_CACHE = {};
         function getShipImage(path) {
             if (!path) return null;
@@ -7025,6 +7260,21 @@
                 SHIP_IMAGE_CACHE[path] = img;
             }
             return (img.complete && img.naturalWidth > 0) ? img : null;
+        }
+        function getPlanetMapImage(planet) {
+            if (!planet) return null;
+            let path = null;
+            if (planet.isRelicWorld) path = 'assets/voidplanet.jpg';
+            else if (typeof PLANET_IMAGE_DATA !== 'undefined' && planet.type) path = PLANET_IMAGE_DATA[planet.type];
+            return path ? getShipImage(path) : null;
+        }
+        function preloadPlanetMapImages() {
+            try {
+                if (typeof PLANET_IMAGE_DATA !== 'undefined') {
+                    Object.values(PLANET_IMAGE_DATA).forEach(path => getShipImage(path));
+                }
+                getShipImage('assets/voidplanet.jpg');
+            } catch (e) {}
         }
 
         // Legacy reference for backward compatibility
@@ -8944,9 +9194,21 @@
             }
             
             openChat() {
-                document.getElementById('chatWindow').style.display = 'flex';
+                const chatWindow = document.getElementById('chatWindow');
+                if (!chatWindow) return;
+                chatWindow.style.display = 'flex';
+                chatWindow.style.position = 'fixed';
+                chatWindow.style.bottom = '20px';
+                chatWindow.style.right = '20px';
+                chatWindow.style.left = 'auto';
+                chatWindow.style.top = 'auto';
+                chatWindow.style.zIndex = '25000';
+                chatWindow.classList.remove('minimized');
+                this.isMinimized = false;
                 this.switchTab('global');
                 this.unreadCount = 0;
+                const input = document.getElementById('chatInput');
+                if (input) setTimeout(() => input.focus(), 50);
             }
             
             closeChat() {
@@ -10210,9 +10472,93 @@
                 }
                 defense += autoDefendPower;
 
-                const attackSuccess = attackPower > defense;
+                // NPC raid travels across the galaxy map before resolving
+                const botOriginPlanets = game.planets.filter(p =>
+                    p.owner === bot.username || p.ownerUsername === bot.username
+                );
+                const originPlanet = botOriginPlanets[Math.floor(Math.random() * Math.max(1, botOriginPlanets.length))] || null;
+                const fromPos = originPlanet?.position
+                    ? { x: originPlanet.position.x, y: originPlanet.position.y }
+                    : {
+                        x: target.position.x + (Math.random() - 0.5) * 2000,
+                        y: target.position.y + (Math.random() - 0.5) * 2000
+                    };
+                const travelSec = Math.max(18, Math.min(45, 18 + Math.floor(Math.random() * 22)));
+                const inboundShips = Math.max(10, Math.floor(totalShips * 0.35));
+                let mapFleetId = null;
+                if (typeof game.registerMapFleetTravel === 'function') {
+                    mapFleetId = game.registerMapFleetTravel({
+                        from: fromPos,
+                        to: { x: target.position.x, y: target.position.y },
+                        durationSec: travelSec,
+                        label: `${bot.username} Raid`,
+                        side: 'npc',
+                        kind: 'raid',
+                        shipCount: inboundShips,
+                        color: '#ff9900',
+                        alwaysVisible: true
+                    });
+                }
 
-                // Announce the incoming attack in chat
+                const inboundChat = {
+                    id: Date.now() + Math.random(),
+                    username: bot.username,
+                    race: bot.race,
+                    raceColor: RACES.find(r => r.name === bot.race)?.color || '#ff3366',
+                    text: `🚨 War fleet inbound — ETA ${travelSec}s to ${target.name}!`,
+                    timestamp: Date.now(),
+                    type: 'user',
+                    isBot: true
+                };
+                if (typeof chatManager !== 'undefined') {
+                    chatManager.messages.push(inboundChat);
+                    chatManager.saveMessages();
+                    chatManager.broadcastMessage(inboundChat);
+                }
+                game.showNotification(`🚨 ${bot.username} fleet inbound to ${target.name} (${travelSec}s)`);
+                if (typeof game.updateMap === 'function') game.updateMap();
+
+                setTimeout(() => {
+                    if (mapFleetId && typeof game.removeMapFleetTravel === 'function') {
+                        game.removeMapFleetTravel(mapFleetId);
+                    }
+                    // Recompute defense on arrival — player may have reinforced
+                    let arrivalDefense = 1000;
+                    if (target.buildings) {
+                        arrivalDefense += (target.buildings['Missile Silo']  || 0) * 500;
+                        arrivalDefense += (target.buildings['Space Station'] || 0) * 1000;
+                        arrivalDefense += (target.buildings['Barracks']      || 0) * 300;
+                        if (target.buildings['City Dome']) {
+                            arrivalDefense += arrivalDefense * (target.buildings['City Dome'] * 0.05);
+                        }
+                    }
+                    if (game.techBonuses && game.techBonuses.planetDefense) {
+                        arrivalDefense *= (1 + game.techBonuses.planetDefense / 100);
+                    }
+                    let arrivalDefendPower = 0;
+                    if (game.fleets) {
+                        game.fleets.forEach(fleet => {
+                            if (!fleet || !fleet.stacks || fleet.stacks.length === 0) return;
+                            if (!fleet.assignedTarget && !fleet.onMission) {
+                                fleet.stacks.forEach(stack => {
+                                    const ship = game.ships[stack.shipType];
+                                    if (ship) arrivalDefendPower += ship.damage * stack.count;
+                                });
+                            }
+                        });
+                    }
+                    if (game.ships) {
+                        Object.values(game.ships).forEach(ship => {
+                            if (ship.count > 0 && !ship.onMission) {
+                                arrivalDefendPower += ship.damage * ship.count * 0.5;
+                            }
+                        });
+                    }
+                    arrivalDefense += arrivalDefendPower;
+                    const attackSuccess = attackPower > arrivalDefense;
+                    defense = arrivalDefense;
+
+                // Announce the attack result in chat
                 const chatMsg = {
                     id: Date.now() + Math.random(),
                     username: bot.username,
@@ -10332,6 +10678,7 @@
                         `No resources lost. (${Math.floor(attackPower).toLocaleString()} ATK vs ${Math.floor(defense).toLocaleString()} DEF)`
                     );
                 }
+                }, travelSec * 1000);
             }
             
             randomBotChat(forceCategory = null) {
@@ -13996,6 +14343,11 @@ const SHIP_IMAGE_DATA = {
                 if (this._hazardEventTimer)         clearTimeout(this._hazardEventTimer);
                 if (this._hazardEndTimer)           clearTimeout(this._hazardEndTimer);
                 if (this._pirateSurgeInterval)      clearInterval(this._pirateSurgeInterval);
+                if (this._autoPlanetScanInterval) {
+                    clearInterval(this._autoPlanetScanInterval);
+                    this._autoPlanetScanInterval = null;
+                }
+                this._autoPlanetScan = false;
                 // Stop boss auto-waves
                 if (this._bossAutoWaveFleets) {
                     Object.keys(this._bossAutoWaveFleets).forEach(idx => clearInterval(this._bossAutoWaveFleets[idx]));
@@ -14239,24 +14591,49 @@ const SHIP_IMAGE_DATA = {
                         'Barren': '#888888'
                     };
                     
-                    // All planet sizes scale with zoom so they grow as you zoom in
-                    // Base sizes are in world units; clamped so they stay legible when zoomed way out
+                    // Sized for readable planet art (not tiny dots)
                     const pz = this.mapZoom;
-                    const pr = Math.max(4, Math.min(40, 8 * pz));          // planet body radius
-                    const glowR = pr * 2.5;
+                    const pr = Math.max(12, Math.min(64, 18 * pz));
+                    const glowR = pr * 2.2;
+                    const typeColor = colors[planet.type] || '#88aacc';
 
-                    // Planet glow
-                    const gradient = ctx.createRadialGradient(x, y, 0, x, y, glowR);
-                    gradient.addColorStop(0, colors[planet.type] + 'aa');
-                    gradient.addColorStop(1, colors[planet.type] + '00');
+                    // Soft type-colored atmosphere glow
+                    const gradient = ctx.createRadialGradient(x, y, pr * 0.35, x, y, glowR);
+                    gradient.addColorStop(0, typeColor + '66');
+                    gradient.addColorStop(1, typeColor + '00');
                     ctx.fillStyle = gradient;
-                    ctx.fillRect(x - glowR, y - glowR, glowR * 2, glowR * 2);
-
-                    // Planet body
-                    ctx.fillStyle = colors[planet.type];
                     ctx.beginPath();
-                    ctx.arc(x, y, pr, 0, Math.PI * 2);
+                    ctx.arc(x, y, glowR, 0, Math.PI * 2);
                     ctx.fill();
+
+                    // Planet body — real artwork from PLANET_IMAGE_DATA when loaded
+                    const planetImg = getPlanetMapImage(planet);
+                    if (planetImg) {
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.arc(x, y, pr, 0, Math.PI * 2);
+                        ctx.closePath();
+                        ctx.clip();
+                        ctx.drawImage(planetImg, x - pr, y - pr, pr * 2, pr * 2);
+                        ctx.restore();
+                        // Rim so spheres read against the starfield
+                        ctx.strokeStyle = typeColor;
+                        ctx.lineWidth = Math.max(1.25, 1.75 * Math.min(pz, 2));
+                        ctx.beginPath();
+                        ctx.arc(x, y, pr, 0, Math.PI * 2);
+                        ctx.stroke();
+                        // Specular highlight
+                        ctx.beginPath();
+                        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+                        ctx.ellipse(x - pr * 0.28, y - pr * 0.32, pr * 0.28, pr * 0.18, -0.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else {
+                        // Fallback while images load
+                        ctx.fillStyle = typeColor;
+                        ctx.beginPath();
+                        ctx.arc(x, y, pr, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
 
                     // Planet name label — shown when zoomed in enough
                     if (pz >= 1.5) {
@@ -14373,6 +14750,9 @@ const SHIP_IMAGE_DATA = {
 
                 // ── Fog of War — drawn over all planets/rings/overlays ──
                 this.drawFogOfWar(ctx, canvas, centerX, centerY);
+
+                // Fleet / ship markers (orbits + in-transit) drawn above fog
+                this.drawMapFleetMarkers(ctx, canvas, centerX, centerY);
             }
             
             updateMap() {
@@ -14384,6 +14764,12 @@ const SHIP_IMAGE_DATA = {
                 if (!this.canvas || !this.ctx) {
                     console.warn('Canvas not ready, skipping map update');
                     return;
+                }
+
+                // Warm planet art cache so map markers swap from dots to sprites quickly
+                if (!this._planetImagesPreloaded) {
+                    this._planetImagesPreloaded = true;
+                    preloadPlanetMapImages();
                 }
                 
                 // Start animation if not already running
@@ -14477,53 +14863,281 @@ const SHIP_IMAGE_DATA = {
                 raceShips.forEach(ship => {
                     this.ships[ship.name] = {
                         ...ship,
-                        count: ship.class === 'Drone' ? 5 : 0,
+                        // Start with 5 scouts so a 1× scout mission is available immediately
+                        count: ship.class === 'Drone' ? 5 : (ship.class === 'Scout' ? 5 : 0),
                         researched: ship.class === 'Drone' || ship.class === 'Scout'
                     };
                 });
             }
-            
-            scoutNewPlanet() {
-                const MAX_OWNED_PLANETS = 100000;
-                const ownedPlanets = this.planets.filter(p => p.owner === this.selectedRace.name);
 
-                if (ownedPlanets.length >= MAX_OWNED_PLANETS) {
-                    this.showNotification(`⚠️ Maximum planet limit reached (${MAX_OWNED_PLANETS})!`);
-                    return;
+            // 1×=5, 2×=10, 3×=20, 4×=40 … → 5 * 2^(n-1)
+            getScoutShipRequirement(missions) {
+                const n = Math.max(1, Math.floor(Number(missions) || 1));
+                return 5 * Math.pow(2, n - 1);
+            }
+
+            getScoutShipCount() {
+                if (!this.ships) return 0;
+                return Object.values(this.ships).reduce((sum, ship) => {
+                    if (!ship || ship.class !== 'Scout') return sum;
+                    return sum + Math.max(0, ship.count || 0);
+                }, 0);
+            }
+
+            consumeScoutShips(amount) {
+                let left = Math.max(0, Math.floor(amount || 0));
+                if (!this.ships || left <= 0) return left === 0;
+                Object.values(this.ships).forEach(ship => {
+                    if (left <= 0 || !ship || ship.class !== 'Scout') return;
+                    const take = Math.min(Math.max(0, ship.count || 0), left);
+                    ship.count = Math.max(0, (ship.count || 0) - take);
+                    left -= take;
+                });
+                return left === 0;
+            }
+
+            getMaxScoutMissionsForShips(available = this.getScoutShipCount()) {
+                let n = 0;
+                while (n < 12 && this.getScoutShipRequirement(n + 1) <= available) n++;
+                return n;
+            }
+
+            getSelectedScoutMissionCount() {
+                const maxAffordable = this.getMaxScoutMissionsForShips();
+                const fallback = Math.max(1, maxAffordable || 1);
+                let n = Math.floor(Number(this._scoutMissionCount) || fallback);
+                if (n < 1) n = 1;
+                if (n > 12) n = 12;
+                this._scoutMissionCount = n;
+                return n;
+            }
+
+            adjustScoutMissionCount(delta) {
+                const available = this.getScoutShipCount();
+                const maxAffordable = Math.max(1, this.getMaxScoutMissionsForShips(available) || 1);
+                let n = this.getSelectedScoutMissionCount() + (Number(delta) || 0);
+                if (n < 1) n = 1;
+                if (n > maxAffordable) n = maxAffordable;
+                this._scoutMissionCount = n;
+                this.refreshScoutPanel();
+            }
+
+            getScoutResourceCosts(missionCount = 1) {
+                const baseCost = 1000;
+                const baseHE3 = 200;
+                const planetCount = this.planets.length;
+                const perCredits = Math.floor((baseCost + (planetCount * 100)) * 0.6);
+                const perHE3 = baseHE3 + (planetCount * 20);
+                const n = Math.max(1, Math.floor(missionCount || 1));
+                return {
+                    perCredits,
+                    perHE3,
+                    credits: perCredits * n,
+                    he3: perHE3 * n,
+                    scoutingTime: Math.min(15, Math.floor(5 + (planetCount * 0.5)) + Math.max(0, n - 1) * 2)
+                };
+            }
+
+            refreshScoutPanel() {
+                const meta = document.getElementById('scoutPanelMeta');
+                const label = document.getElementById('scoutMissionCountLabel');
+                const costLine = document.getElementById('scoutCostLine');
+                const btn = document.getElementById('scoutLaunchBtn');
+                const autoBtn = document.getElementById('scoutAutoScanBtn');
+                const autoMeta = document.getElementById('scoutAutoScanMeta');
+                if (!meta && !label && !costLine && !btn && !autoBtn) return;
+
+                const available = this.getScoutShipCount();
+                const maxAffordable = this.getMaxScoutMissionsForShips(available);
+                let missions = this.getSelectedScoutMissionCount();
+                if (maxAffordable > 0 && missions > maxAffordable) {
+                    missions = maxAffordable;
+                    this._scoutMissionCount = missions;
                 }
 
-                const baseCost   = 1000;
-                const baseHE3    = 200;
-                const planetCount = this.planets.length;
+                const shipsNeeded = this.getScoutShipRequirement(missions);
+                const costs = this.getScoutResourceCosts(missions);
+                const canShips = available >= shipsNeeded;
+                const canCredits = (this.resources?.credits || 0) >= costs.credits;
+                const canHE3 = (this.resources?.he3 || 0) >= costs.he3;
+                const busy = !!this._tutorialScoutPending;
+                const canLaunch = canShips && canCredits && canHE3 && !busy;
+                const autoOn = !!this._autoPlanetScan;
 
-                const scaledCredits = Math.floor((baseCost + (planetCount * 100)) * 0.6);
-                const scaledHE3     = baseHE3 + (planetCount * 20);
-                // Cap scouting time at 15s max — prevents excessively long waits
-                const scoutingTime  = Math.min(15, Math.floor(5 + (planetCount * 0.5)));
+                if (meta) {
+                    meta.textContent = `Scout ships available: ${available.toLocaleString()}  ·  Max open scouts: ${maxAffordable || 0}×`;
+                }
+                if (label) label.textContent = `${missions}×`;
+                if (costLine) {
+                    costLine.innerHTML =
+                        `<strong>${missions}×</strong> scout needs <strong>${shipsNeeded.toLocaleString()}</strong> scout ships<br>` +
+                        `₡${costs.credits.toLocaleString()}  ·  ⚡${costs.he3.toLocaleString()}  ·  ~${costs.scoutingTime}s`;
+                }
+                if (btn) {
+                    btn.disabled = !canLaunch;
+                    btn.textContent = missions > 1 ? `🔭 Launch ${missions}× Scout` : '🔭 Launch Scout';
+                    if (busy) btn.title = 'Already scanning...';
+                    else if (!canShips) btn.title = `Need ${shipsNeeded} scout ships (have ${available})`;
+                    else if (!canCredits || !canHE3) btn.title = 'Not enough credits or HE3';
+                    else btn.title = '';
+                }
+                if (autoBtn) {
+                    autoBtn.classList.toggle('active', autoOn);
+                    autoBtn.textContent = autoOn ? '🔁 Auto-Scan ON (every 20s)' : '🔁 Auto-Scan for Planets';
+                    autoBtn.title = autoOn
+                        ? 'Click to stop automatic planet scans'
+                        : 'Automatically launch scout missions every 20 seconds using the selected × count';
+                }
+                if (autoMeta) {
+                    if (autoOn) {
+                        const nextIn = this._autoPlanetScanNextAt
+                            ? Math.max(0, Math.ceil((this._autoPlanetScanNextAt - Date.now()) / 1000))
+                            : 20;
+                        autoMeta.textContent = busy
+                            ? `ON — scan in progress, next attempt in ~${nextIn}s`
+                            : `ON — next auto-scan in ~${nextIn}s · uses current ${missions}× setting`;
+                    } else {
+                        autoMeta.textContent = 'Off — scans every 20s when enabled (uses current × setting)';
+                    }
+                }
+            }
+
+            toggleAutoPlanetScan() {
+                if (this._autoPlanetScan) this.stopAutoPlanetScan();
+                else this.startAutoPlanetScan();
+            }
+
+            startAutoPlanetScan() {
+                if (this._autoPlanetScan) return;
+                this._autoPlanetScan = true;
+                if (this._autoPlanetScanInterval) {
+                    clearInterval(this._autoPlanetScanInterval);
+                    this._autoPlanetScanInterval = null;
+                }
+                this.showNotification('🔁 Auto-Scan enabled — scanning for planets every 20s');
+                this._runAutoPlanetScanTick(true);
+                this._autoPlanetScanInterval = setInterval(() => {
+                    this._runAutoPlanetScanTick(false);
+                }, 20000);
+                this.refreshScoutPanel();
+            }
+
+            stopAutoPlanetScan(reason = null) {
+                const wasOn = !!this._autoPlanetScan;
+                this._autoPlanetScan = false;
+                this._autoPlanetScanNextAt = null;
+                if (this._autoPlanetScanInterval) {
+                    clearInterval(this._autoPlanetScanInterval);
+                    this._autoPlanetScanInterval = null;
+                }
+                if (wasOn) {
+                    this.showNotification(reason
+                        ? `⏹️ Auto-Scan stopped — ${reason}`
+                        : '⏹️ Auto-Scan disabled');
+                }
+                this.refreshScoutPanel();
+            }
+
+            _runAutoPlanetScanTick(isImmediate = false) {
+                if (!this._autoPlanetScan) return;
+                this._autoPlanetScanNextAt = Date.now() + 20000;
+                if (this._tutorialScoutPending) {
+                    this.refreshScoutPanel();
+                    return;
+                }
+                const started = this.scoutNewPlanet({ auto: true, silentFail: true });
+                if (!started) {
+                    // Only hard-stop when we clearly cannot afford another scan
+                    const missions = this.getSelectedScoutMissionCount();
+                    const shipsNeeded = this.getScoutShipRequirement(missions);
+                    const costs = this.getScoutResourceCosts(missions);
+                    const noShips = this.getScoutShipCount() < shipsNeeded;
+                    const noRes = (this.resources?.credits || 0) < costs.credits || (this.resources?.he3 || 0) < costs.he3;
+                    if (noShips || noRes) {
+                        this.stopAutoPlanetScan(noShips
+                            ? 'not enough scout ships'
+                            : 'not enough credits/HE3');
+                        return;
+                    }
+                }
+                this.refreshScoutPanel();
+            }
+            
+            scoutNewPlanet(options = {}) {
+                const auto = !!options.auto;
+                const silentFail = !!options.silentFail || auto;
+                const MAX_OWNED_PLANETS = 100000;
+                const ownedPlanets = this.planets.filter(p => p.owner === this.selectedRace.name);
+                const missionCount = this.getSelectedScoutMissionCount();
+                const shipsNeeded = this.getScoutShipRequirement(missionCount);
+
+                if (ownedPlanets.length >= MAX_OWNED_PLANETS) {
+                    if (!silentFail) this.showNotification(`⚠️ Maximum planet limit reached (${MAX_OWNED_PLANETS})!`);
+                    this.refreshScoutPanel();
+                    return false;
+                }
+
+                if (ownedPlanets.length + missionCount > MAX_OWNED_PLANETS) {
+                    if (!silentFail) this.showNotification(`⚠️ Can only scout ${MAX_OWNED_PLANETS - ownedPlanets.length} more planet(s) before the ownership cap.`);
+                    this.refreshScoutPanel();
+                    return false;
+                }
+
+                const availableScouts = this.getScoutShipCount();
+                if (availableScouts < shipsNeeded) {
+                    if (!silentFail) {
+                        this.showNotification(`⚠️ Need ${shipsNeeded} scout ships for a ${missionCount}× scout (have ${availableScouts}).`);
+                        if (window.tutorialManager && window.tutorialManager.report) {
+                            window.tutorialManager.report('Build more Scout ships first. 1× needs 5, 2× needs 10, 3× needs 20, and so on.');
+                        }
+                    }
+                    this.refreshScoutPanel();
+                    return false;
+                }
+
+                const costs = this.getScoutResourceCosts(missionCount);
+                const scaledCredits = costs.credits;
+                const scaledHE3 = costs.he3;
+                const scoutingTime = costs.scoutingTime;
 
                 if (this.resources.credits < scaledCredits || this.resources.he3 < scaledHE3) {
-                    this.showNotification(`⚠️ Need ₡${scaledCredits.toLocaleString()} and ⚡${scaledHE3.toLocaleString()} to scout!`);
-                    if (window.tutorialManager && window.tutorialManager.report) {
-                        window.tutorialManager.report('That click did not start a scan. You need ' + scaledCredits.toLocaleString() + ' credits and ' + scaledHE3.toLocaleString() + ' HE3.');
+                    if (!silentFail) {
+                        this.showNotification(`⚠️ Need ₡${scaledCredits.toLocaleString()} and ⚡${scaledHE3.toLocaleString()} to scout ${missionCount}×!`);
+                        if (window.tutorialManager && window.tutorialManager.report) {
+                            window.tutorialManager.report('That click did not start a scan. You need ' + scaledCredits.toLocaleString() + ' credits and ' + scaledHE3.toLocaleString() + ' HE3.');
+                        }
                     }
-                    return;
+                    this.refreshScoutPanel();
+                    return false;
                 }
 
                 if (this._tutorialScoutPending) {
-                    this.showNotification('🔭 Already scanning...');
-                    if (window.tutorialManager && window.tutorialManager.report) {
-                        window.tutorialManager.report('A scan is already running. The countdown on this window is the wait.');
+                    if (!silentFail) {
+                        this.showNotification('🔭 Already scanning...');
+                        if (window.tutorialManager && window.tutorialManager.report) {
+                            window.tutorialManager.report('A scan is already running. The countdown on this window is the wait.');
+                        }
                     }
-                    return;
+                    return false;
+                }
+
+                if (!this.consumeScoutShips(shipsNeeded)) {
+                    if (!silentFail) this.showNotification('⚠️ Failed to assign scout ships.');
+                    this.refreshScoutPanel();
+                    return false;
                 }
 
                 this.resources.credits -= scaledCredits;
                 this.resources.he3     -= scaledHE3;
                 this.updateResources();
+                if (typeof this.renderShipBuildList === 'function') this.renderShipBuildList();
+                this.refreshScoutPanel();
 
-                this.showNotification(`🔭 Scouting... (${scoutingTime}s)`);
+                this.showNotification(auto
+                    ? `🔁 Auto-Scan ${missionCount}×... (${scoutingTime}s)`
+                    : `🔭 Scouting ${missionCount}×... (${scoutingTime}s)`);
                 this._tutorialScoutPending = true;
-                if (window.tutorialManager && window.tutorialManager.reportScout) {
+                if (!auto && window.tutorialManager && window.tutorialManager.reportScout) {
                     window.tutorialManager.reportScout(scoutingTime);
                 }
 
@@ -14531,34 +15145,50 @@ const SHIP_IMAGE_DATA = {
                     this._tutorialScoutPending = false;
                     // A space event must not swallow the planet while the tutorial is waiting on a scout.
                     const tutorialNeedsScout = window.tutorialManager && window.tutorialManager.needs && window.tutorialManager.needs('scout');
-                    if (this.checkSpaceEvent('scout') && !tutorialNeedsScout) return;
-
-                    const planet  = this.addRandomPlanet();
-                    planet.scouted = true; // mark as player-discovered
-                    // Keep the find inside sensor range of a world the player owns,
-                    // otherwise it never appears on the Available tab.
-                    const anchor = this.planets.find(p => this._isMyPlanet(p));
-                    if (anchor) {
-                        const angle = Math.random() * Math.PI * 2;
-                        const dist = 400 + Math.random() * 500;
-                        planet.position.x = anchor.position.x + Math.cos(angle) * dist;
-                        planet.position.y = anchor.position.y + Math.sin(angle) * dist;
+                    if (this.checkSpaceEvent('scout') && !tutorialNeedsScout) {
+                        this.refreshScoutPanel();
+                        return;
                     }
-                    if (window.tutorialManager) window.tutorialManager.completeAction('scout');
+
+                    const discovered = [];
+                    const anchor = this.planets.find(p => this._isMyPlanet(p));
+                    for (let i = 0; i < missionCount; i++) {
+                        const planet = this.addRandomPlanet();
+                        planet.scouted = true;
+                        if (anchor) {
+                            const angle = Math.random() * Math.PI * 2;
+                            const dist = 400 + Math.random() * 500 + i * 80;
+                            planet.position.x = anchor.position.x + Math.cos(angle) * dist;
+                            planet.position.y = anchor.position.y + Math.sin(angle) * dist;
+                        }
+                        discovered.push(planet);
+                    }
+
+                    if (!auto && window.tutorialManager) window.tutorialManager.completeAction('scout');
 
                     this.renderPlanets();
                     this.renderAvailablePlanets();
                     this.updateMap();
+                    this.refreshScoutPanel();
 
-                    // Always switch to Available tab so the player sees the new planet immediately
-                    this.switchPlanetTab('available');
+                    // Manual scout jumps to Available; auto-scan stays put so it doesn't yank the UI
+                    if (!auto) this.switchPlanetTab('available');
 
-                    this.showNotification(`✨ ${planet.name} discovered! Switch to the Available tab to colonize.`);
+                    if (discovered.length === 1) {
+                        this.showNotification(auto
+                            ? `✨ Auto-Scan found ${discovered[0].name}`
+                            : `✨ ${discovered[0].name} discovered! Switch to the Available tab to colonize.`);
+                    } else {
+                        this.showNotification(`✨ ${discovered.length} planets discovered: ${discovered.map(p => p.name).join(', ')}`);
+                    }
 
                     if (this.commanderManager) {
-                        this.commanderManager.checkCommanderDrop();
+                        for (let i = 0; i < discovered.length; i++) {
+                            this.commanderManager.checkCommanderDrop();
+                        }
                     }
                 }, scoutingTime * 1000);
+                return true;
             }
             
             checkSpaceEvent(travelType = 'attack', fleet = null) {
@@ -15644,10 +16274,26 @@ const SHIP_IMAGE_DATA = {
                 // Show travel notification
                 this.showNotification(`🚀 ${usingFleet ? 'Fleet' : 'Ships'} traveling to ${target.name}... (${travelTime}s) — UNAVAILABLE until return`);
                 
-                // Travel timer
+                // Travel timer + galaxy-map marker
                 const missionFleetIndex = usingFleet ? selectedFleetIndex : null;
                 const missionShips = usingFleet ? null : Object.keys(attackForce);
+                const originPlanet = this.getPrimaryFleetBasePlanet();
+                const shipCount = Object.values(attackForce).reduce((s, c) => s + (Number(c) || 0), 0);
+                const fleetLabel = usingFleet
+                    ? (this.fleets[selectedFleetIndex]?.name || 'Attack Fleet')
+                    : 'Strike Force';
+                const mapFleetId = this.registerMapFleetTravel({
+                    from: originPlanet?.position || { x: 0, y: 0 },
+                    to: target.position,
+                    durationSec: travelTime,
+                    label: fleetLabel,
+                    side: 'player',
+                    kind: 'attack',
+                    shipCount,
+                    alwaysVisible: true
+                });
                 setTimeout(() => {
+                    this.removeMapFleetTravel(mapFleetId);
                     this.resolveAttack(target, attackForce, totalPower, missionFleetIndex, missionShips);
                 }, travelTime * 1000);
             }
@@ -16798,6 +17444,404 @@ const SHIP_IMAGE_DATA = {
             }
 
             // Draw fog of war overlay on the canvas
+            ensureMapFleetMarkers() {
+                if (!Array.isArray(this.mapFleetMarkers)) this.mapFleetMarkers = [];
+            }
+
+            getPrimaryFleetBasePlanet() {
+                if (!this.planets) return null;
+                return this.planets.find(p => Number(p.id) === this.homePlanetId)
+                    || this.planets.find(p => this._isMyPlanet(p))
+                    || null;
+            }
+
+            // Map fleet colors: player cyan, guild lime, npc orange, enemy red
+            getMapFleetSideColor(side) {
+                if (side === 'guild') return '#32CD32'; // lime green
+                if (side === 'npc') return '#ff9900';
+                if (side === 'enemy') return '#ff4466';
+                return '#00d9ff'; // player
+            }
+
+            isGuildAssociate(ownerName) {
+                if (!ownerName) return false;
+                const me = this.playerData?.username;
+                if (me && ownerName === me) return false; // own forces stay player-cyan
+                if (!this.guildId || typeof guildManager === 'undefined') return false;
+                const guild = guildManager.getGuild(this.guildId);
+                if (!guild || !Array.isArray(guild.members)) return false;
+                return guild.members.includes(ownerName);
+            }
+
+            resolveMapFleetSide(opts = {}) {
+                if (opts.side) return opts.side;
+                const owner = opts.owner || opts.ownerUsername || opts.username;
+                if (owner && this.isGuildAssociate(owner)) return 'guild';
+                return 'player';
+            }
+
+            registerMapFleetTravel(opts = {}) {
+                this.ensureMapFleetMarkers();
+                const durationSec = Math.max(1, Number(opts.durationSec) || 1);
+                const side = this.resolveMapFleetSide(opts);
+                const color = opts.color || this.getMapFleetSideColor(side);
+                const marker = {
+                    id: opts.id || (`mf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
+                    from: { x: Number(opts.from?.x) || 0, y: Number(opts.from?.y) || 0 },
+                    to: { x: Number(opts.to?.x) || 0, y: Number(opts.to?.y) || 0 },
+                    startTime: Date.now(),
+                    endTime: Date.now() + durationSec * 1000,
+                    label: opts.label || 'Fleet',
+                    side,
+                    kind: opts.kind || 'transit',
+                    shipCount: Math.max(0, Math.floor(Number(opts.shipCount) || 0)),
+                    color,
+                    owner: opts.owner || opts.ownerUsername || opts.username || null,
+                    traveling: true,
+                    alwaysVisible: !!opts.alwaysVisible || side === 'player' || side === 'guild',
+                };
+                this.mapFleetMarkers.push(marker);
+                if (side === 'player' && this.guildId) {
+                    this.publishGuildFleetTravel(marker);
+                }
+                if (!this.mapAnimating && typeof this.startMapAnimation === 'function') {
+                    this.startMapAnimation();
+                }
+                return marker.id;
+            }
+
+            publishGuildFleetTravel(marker) {
+                try {
+                    if (!this.guildId || !marker) return;
+                    const me = this.playerData?.username;
+                    if (!me) return;
+                    const key = `fu_guildFleets_${this.guildId}`;
+                    let list = [];
+                    try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
+                    if (!Array.isArray(list)) list = [];
+                    const now = Date.now();
+                    list = list.filter(m => m && m.endTime > now - 1000 && m.owner !== me);
+                    list.push({
+                        id: `guild_${me}_${marker.id}`,
+                        from: marker.from,
+                        to: marker.to,
+                        startTime: marker.startTime,
+                        endTime: marker.endTime,
+                        label: `[Guild] ${marker.label}`,
+                        side: 'guild',
+                        kind: marker.kind || 'transit',
+                        shipCount: marker.shipCount || 0,
+                        color: this.getMapFleetSideColor('guild'),
+                        owner: me,
+                        traveling: true,
+                        alwaysVisible: true
+                    });
+                    if (list.length > 40) list = list.slice(-40);
+                    localStorage.setItem(key, JSON.stringify(list));
+                    localStorage.setItem(`fu_guildFleetsUpdate_${this.guildId}`, String(now));
+                } catch (e) { /* ignore share failures */ }
+            }
+
+            ingestGuildFleetTravels() {
+                try {
+                    if (!this.guildId) return;
+                    const me = this.playerData?.username;
+                    const key = `fu_guildFleets_${this.guildId}`;
+                    let list = [];
+                    try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
+                    if (!Array.isArray(list) || !list.length) return;
+                    this.ensureMapFleetMarkers();
+                    const now = Date.now();
+                    const existing = new Set((this.mapFleetMarkers || []).map(m => m.id));
+                    list.forEach(shared => {
+                        if (!shared || !shared.id || shared.owner === me) return;
+                        if (shared.endTime <= now) return;
+                        if (existing.has(shared.id)) {
+                            const live = this.mapFleetMarkers.find(m => m.id === shared.id);
+                            if (live) {
+                                live.endTime = shared.endTime;
+                                live.from = shared.from;
+                                live.to = shared.to;
+                            }
+                            return;
+                        }
+                        this.mapFleetMarkers.push({
+                            ...shared,
+                            side: 'guild',
+                            color: shared.color || this.getMapFleetSideColor('guild'),
+                            traveling: true,
+                            alwaysVisible: true
+                        });
+                    });
+                } catch (e) { /* ignore */ }
+            }
+
+            removeMapFleetTravel(id) {
+                if (!this.mapFleetMarkers || !id) return;
+                this.mapFleetMarkers = this.mapFleetMarkers.filter(m => m.id !== id);
+            }
+
+            pruneExpiredMapFleetMarkers(now = Date.now()) {
+                this.ensureMapFleetMarkers();
+                this.mapFleetMarkers = this.mapFleetMarkers.filter(m => !m.traveling || m.endTime > now - 250);
+            }
+
+            getMapFleetWorldPos(marker, now = Date.now()) {
+                if (!marker) return { x: 0, y: 0, progress: 1, heading: 0 };
+                if (!marker.traveling) {
+                    return {
+                        x: marker.x || 0,
+                        y: marker.y || 0,
+                        progress: 1,
+                        heading: marker.heading || 0
+                    };
+                }
+                const dur = Math.max(1, marker.endTime - marker.startTime);
+                const progress = Math.min(1, Math.max(0, (now - marker.startTime) / dur));
+                const x = marker.from.x + (marker.to.x - marker.from.x) * progress;
+                const y = marker.from.y + (marker.to.y - marker.from.y) * progress;
+                const heading = Math.atan2(marker.to.y - marker.from.y, marker.to.x - marker.from.x);
+                return { x, y, progress, heading };
+            }
+
+            collectStationaryMapFleets(now = Date.now()) {
+                const markers = [];
+                if (!this.planets) return markers;
+
+                const home = this.getPrimaryFleetBasePlanet();
+                const fleetList = Array.isArray(this.fleets) ? this.fleets : [];
+
+                // Player fleets in orbit around home / assigned worlds
+                fleetList.forEach((fleet, idx) => {
+                    if (!fleet || fleet.onMission) return;
+                    const stacks = fleet.stacks || [];
+                    const shipCount = stacks.reduce((s, st) => s + (st.count || 0), 0);
+                    if (shipCount <= 0) return;
+
+                    let base = home;
+                    if (fleet.assignedTarget != null) {
+                        const assigned = this.planets.find(p =>
+                            Number(p.id) === Number(fleet.assignedTarget) || p.name === fleet.assignedTarget
+                        );
+                        if (assigned) base = assigned;
+                    }
+                    if (!base?.position) return;
+
+                    const ang = (idx / Math.max(1, fleetList.length)) * Math.PI * 2 + now / 3500;
+                    const orbit = 70 + (idx % 4) * 22;
+                    markers.push({
+                        traveling: false,
+                        x: base.position.x + Math.cos(ang) * orbit,
+                        y: base.position.y + Math.sin(ang) * orbit,
+                        heading: ang + Math.PI / 2,
+                        label: fleet.name || `Fleet ${idx + 1}`,
+                        side: 'player',
+                        kind: 'orbit',
+                        shipCount,
+                        color: '#00d9ff',
+                        alwaysVisible: true
+                    });
+                });
+
+                // Hangar ships not in a fleet — one aggregate marker at home
+                if (home?.position && this.ships) {
+                    let hangarCount = 0;
+                    Object.values(this.ships).forEach(ship => {
+                        if (!ship || ship.onMission) return;
+                        hangarCount += Math.max(0, ship.count || 0);
+                    });
+                    if (hangarCount > 0) {
+                        const ang = now / 5000;
+                        markers.push({
+                            traveling: false,
+                            x: home.position.x + Math.cos(ang) * 45,
+                            y: home.position.y + Math.sin(ang) * 45,
+                            heading: ang + Math.PI / 2,
+                            label: 'Hangar Wings',
+                            side: 'player',
+                            kind: 'hangar',
+                            shipCount: hangarCount,
+                            color: '#66e0ff',
+                            alwaysVisible: true
+                        });
+                    }
+                }
+
+                // Enemy / NPC garrisons parked on hostile worlds
+                this.planets.forEach((planet, pIdx) => {
+                    if (!planet?.position || this._isMyPlanet(planet)) return;
+                    const garrison = planet.botGarrison || {};
+                    let shipCount = 0;
+                    Object.values(garrison).forEach(g => { shipCount += Math.max(0, g?.count || 0); });
+                    if (shipCount <= 0 && !(planet.botGarrisonPower > 0)) return;
+                    if (shipCount <= 0) shipCount = Math.max(1, Math.floor((planet.botGarrisonPower || 0) / 100));
+
+                    const ownerKey = planet.ownerUsername || planet.owner || '';
+                    const isGuild = this.isGuildAssociate(ownerKey);
+                    const isNpc = !!(ownerKey);
+                    const ang = (pIdx * 1.7) + now / 4200;
+                    const side = isGuild ? 'guild' : (isNpc ? 'npc' : 'enemy');
+                    markers.push({
+                        traveling: false,
+                        x: planet.position.x + Math.cos(ang) * 55,
+                        y: planet.position.y + Math.sin(ang) * 55,
+                        heading: ang + Math.PI / 2,
+                        label: isGuild
+                            ? `[Guild] ${ownerKey} Garrison`
+                            : `${ownerKey || 'Hostile'} Garrison`,
+                        side,
+                        kind: 'garrison',
+                        shipCount,
+                        color: this.getMapFleetSideColor(side),
+                        alwaysVisible: isGuild
+                    });
+                });
+
+                // Active sieges — fleet holding orbit over the target
+                (this.sieges || []).forEach((siege, sIdx) => {
+                    if (!siege || !siege.active) return;
+                    const planet = this.planets.find(p => Number(p.id) === Number(siege.planetId));
+                    if (!planet?.position) return;
+                    const force = siege.force || {};
+                    const shipCount = Object.values(force).reduce((s, c) => s + (Number(c) || 0), 0);
+                    const ang = now / 1800 + sIdx;
+                    markers.push({
+                        traveling: false,
+                        x: planet.position.x + Math.cos(ang) * 90,
+                        y: planet.position.y + Math.sin(ang) * 90,
+                        heading: ang + Math.PI / 2,
+                        label: `Siege: ${siege.planetName || planet.name}`,
+                        side: 'player',
+                        kind: 'siege',
+                        shipCount,
+                        color: '#ff6622',
+                        alwaysVisible: true
+                    });
+                });
+
+                return markers;
+            }
+
+            drawFleetChevron(ctx, x, y, heading, size, color, filled = true) {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(heading);
+                ctx.beginPath();
+                ctx.moveTo(size, 0);
+                ctx.lineTo(-size * 0.75, size * 0.65);
+                ctx.lineTo(-size * 0.35, 0);
+                ctx.lineTo(-size * 0.75, -size * 0.65);
+                ctx.closePath();
+                if (filled) {
+                    ctx.fillStyle = color;
+                    ctx.globalAlpha = 0.92;
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = Math.max(1, size * 0.12);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            drawMapFleetMarkers(ctx, canvas, centerX, centerY) {
+                if (!ctx || !canvas) return;
+                this.ingestGuildFleetTravels();
+                this.pruneExpiredMapFleetMarkers();
+                const now = Date.now();
+                const traveling = (this.mapFleetMarkers || []).filter(m => m && m.traveling && m.endTime >= now);
+                const stationary = this.collectStationaryMapFleets(now);
+                const all = traveling.concat(stationary);
+                if (!all.length) return;
+
+                const pz = this.mapZoom;
+                const labelZoom = pz >= 0.55;
+
+                all.forEach(marker => {
+                    const pos = marker.traveling
+                        ? this.getMapFleetWorldPos(marker, now)
+                        : { x: marker.x, y: marker.y, progress: 1, heading: marker.heading || 0 };
+
+                    // Visibility: own/guild fleets + inbound hostiles always; others need sensors
+                    const visible = marker.alwaysVisible
+                        || marker.side === 'player'
+                        || marker.side === 'guild'
+                        || this.isInSensorRange(pos.x, pos.y)
+                        || (marker.traveling && this.isInSensorRange(marker.to.x, marker.to.y));
+                    if (!visible) return;
+
+                    const sx = centerX + (pos.x + this.mapPan.x) * this.mapZoom;
+                    const sy = centerY + (pos.y + this.mapPan.y) * this.mapZoom;
+                    const cull = Math.max(40, 60 * pz);
+                    if (sx < -cull || sx > canvas.width + cull || sy < -cull || sy > canvas.height + cull) return;
+
+                    const color = marker.color || this.getMapFleetSideColor(marker.side || 'player');
+                    const size = Math.max(6, Math.min(18, 7 + Math.log2(Math.max(2, marker.shipCount || 2)) * 1.6 * Math.min(pz * 4, 2.2)));
+
+                    // Transit path
+                    if (marker.traveling) {
+                        const x1 = centerX + (marker.from.x + this.mapPan.x) * this.mapZoom;
+                        const y1 = centerY + (marker.from.y + this.mapPan.y) * this.mapZoom;
+                        const x2 = centerX + (marker.to.x + this.mapPan.x) * this.mapZoom;
+                        const y2 = centerY + (marker.to.y + this.mapPan.y) * this.mapZoom;
+                        ctx.save();
+                        ctx.strokeStyle = color;
+                        ctx.globalAlpha = 0.35;
+                        ctx.lineWidth = Math.max(1, 1.25 * Math.min(pz, 2));
+                        ctx.setLineDash([6, 6]);
+                        ctx.beginPath();
+                        ctx.moveTo(x1, y1);
+                        ctx.lineTo(x2, y2);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.globalAlpha = 1;
+                        ctx.restore();
+
+                        // Pulse ring for inbound hostiles (not friendly player/guild)
+                        if (marker.side !== 'player' && marker.side !== 'guild') {
+                            const pulse = 0.35 + 0.35 * Math.sin(now / 220);
+                            ctx.beginPath();
+                            ctx.strokeStyle = color;
+                            ctx.globalAlpha = pulse;
+                            ctx.lineWidth = 2;
+                            ctx.arc(sx, sy, size * 1.8, 0, Math.PI * 2);
+                            ctx.stroke();
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+
+                    this.drawFleetChevron(ctx, sx, sy, pos.heading || 0, size, color, true);
+
+                    // Ship-count pip
+                    ctx.beginPath();
+                    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+                    ctx.arc(sx + size * 0.85, sy - size * 0.85, Math.max(6, size * 0.55), 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `bold ${Math.max(8, Math.round(size * 0.7))}px sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    const countLabel = (marker.shipCount || 0) >= 1000
+                        ? `${Math.round((marker.shipCount || 0) / 100) / 10}k`
+                        : String(marker.shipCount || 0);
+                    ctx.fillText(countLabel, sx + size * 0.85, sy - size * 0.85);
+
+                    if (labelZoom || marker.traveling) {
+                        ctx.font = `bold ${Math.max(9, Math.round(10 * Math.min(pz, 1.6)))}px sans-serif`;
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'top';
+                        ctx.fillStyle = color;
+                        ctx.fillText(marker.label || 'Fleet', sx, sy + size + 3);
+                        if (marker.traveling) {
+                            const eta = Math.max(0, Math.ceil((marker.endTime - now) / 1000));
+                            ctx.fillStyle = 'rgba(255,255,255,0.75)';
+                            ctx.font = `${Math.max(8, Math.round(9 * Math.min(pz, 1.6)))}px sans-serif`;
+                            ctx.fillText(`${Math.round(pos.progress * 100)}% · ${eta}s`, sx, sy + size + 15);
+                        }
+                    }
+                });
+            }
+
             drawFogOfWar(ctx, canvas, centerX, centerY) {
                 const ownedPlanets = this.planets.filter(p => this._isMyPlanet(p));
                 if (ownedPlanets.length === 0) return;
@@ -17518,8 +18562,22 @@ const SHIP_IMAGE_DATA = {
                     ? Math.floor(5 * 60 * 1000 * 1.20) : 5 * 60 * 1000;
                 const missionFleetIdx = usingFleet ? fleetIdx : null;
                 const missionShipNames = usingFleet ? null : Object.keys(force);
+                const siegeOrigin = this.getPrimaryFleetBasePlanet();
+                const siegeShipCount = Object.values(force).reduce((s, c) => s + (Number(c) || 0), 0);
+                const siegeMapId = this.registerMapFleetTravel({
+                    from: siegeOrigin?.position || { x: 0, y: 0 },
+                    to: target.position,
+                    durationSec: travelTime,
+                    label: usingFleet ? (this.fleets[fleetIdx]?.name || 'Siege Fleet') : 'Siege Force',
+                    side: 'player',
+                    kind: 'siege',
+                    shipCount: siegeShipCount,
+                    color: '#ff6622',
+                    alwaysVisible: true
+                });
 
                 setTimeout(() => {
+                    this.removeMapFleetTravel(siegeMapId);
                     // Fleet arrives — check if target still enemy-owned
                     if (target.owner === this.selectedRace.name || !target.owner) {
                         // No longer an enemy planet; abort and return fleet
@@ -21505,6 +22563,7 @@ const SHIP_IMAGE_DATA = {
             }
             
             renderShipBuildList() {
+                if (typeof this.refreshScoutPanel === 'function') this.refreshScoutPanel();
                 const container = document.getElementById('shipBuildList');
                 const researchedShips = Object.values(this.ships).filter(ship => ship.researched);
                 const specialShips = this.getSpecialShips();
@@ -22046,6 +23105,7 @@ const SHIP_IMAGE_DATA = {
                 // Update content
                 if (tab === 'owned') {
                     this.renderOwnedPlanets();
+                    this.refreshScoutPanel();
                 } else if (tab === 'available') {
                     this.renderAvailablePlanets();
                     const lp = document.querySelector('.left-panel');
@@ -22904,6 +23964,7 @@ const SHIP_IMAGE_DATA = {
             // Alias for updateResources for compatibility
             updateUI() {
                 this.updateResources();
+                if (typeof this.refreshScoutPanel === 'function') this.refreshScoutPanel();
             }
             
             // Coin Pack Methods
@@ -26926,31 +27987,21 @@ const SHIP_IMAGE_DATA = {
                 this.playerPanelOpen = false;
                 this._loading        = false; // lock to prevent concurrent play calls
                 this._lastPlayedIndex = -1;  // track which index is loaded
-                this._brokenTracks    = new Set(); // files that failed to load
-                this._skipGuardUntil  = 0;
+                this._brokenTracks    = new Set(); // files that failed after all fallbacks
+                this._playGen         = 0;   // ignore stale error/ended from prior src
+                this._activeSrc       = '';
+                this._canPlayHandler  = null;
+                this._errorHandler    = null;
 
-                // 'ended' — advance to next track naturally
+                // 'ended' — only advance if this generation still owns the element
                 this.audio.addEventListener('ended', () => {
+                    if (!this._playGen) return;
+                    // Ignore bogus ended events that fire before playback really started
+                    if (!isFinite(this.audio.duration) || this.audio.duration < 0.5) return;
+                    if (this.audio.currentTime < 0.25 && this.audio.duration > 2) return;
                     this._loading = false;
                     this.isPlaying = false;
                     this.playNext();
-                });
-
-                // 'error' — only skip on genuine file errors, not abort
-                this.audio.addEventListener('error', () => {
-                    // MediaError code 1 = MEDIA_ERR_ABORTED (src change mid-load) — ignore
-                    if (this.audio.error && this.audio.error.code === 1) return;
-                    const track = this.tracks[this.playlist[this.currentIndex]];
-                    const file = track?.file;
-                    console.warn('🎵 Audio error on track, skipping:', file, this.audio.error?.code);
-                    if (file) this._brokenTracks.add(file);
-                    this._loading = false;
-                    this.isPlaying = false;
-                    // Skip after a short delay to prevent runaway loops
-                    const now = Date.now();
-                    if (now < this._skipGuardUntil) return;
-                    this._skipGuardUntil = now + 400;
-                    setTimeout(() => this.playNext(), 350);
                 });
 
                 this.audio.addEventListener('timeupdate', () => this.updateProgress());
@@ -27013,11 +28064,132 @@ const SHIP_IMAGE_DATA = {
                 // Legacy builds pointed playlist files at missing audio/ — files live in assets/
                 if (file.startsWith('audio/')) {
                     const name = file.slice(6);
-                    // Theme was never shipped; keep LootMusic/assets mapping for known packs
                     if (name.toLowerCase() === 'theme.mp3') return 'assets/the_mountain-ambient-487008.mp3';
                     return 'assets/' + name;
                 }
                 return file;
+            }
+
+            _candidateUrls(file) {
+                const primary = this._normalizeTrackPath(file);
+                const name = String(primary).split('/').pop();
+                const out = [];
+                const add = (u) => { if (u && !out.includes(u)) out.push(u); };
+                add(primary);
+                if (name) {
+                    add('assets/' + name);
+                    add(name);
+                    add('LootMusic/' + name);
+                }
+                return out;
+            }
+
+            _detachTransientHandlers() {
+                if (this._canPlayHandler) {
+                    this.audio.removeEventListener('canplay', this._canPlayHandler);
+                    this.audio.removeEventListener('loadeddata', this._canPlayHandler);
+                    this._canPlayHandler = null;
+                }
+                if (this._errorHandler) {
+                    this.audio.removeEventListener('error', this._errorHandler);
+                    this._errorHandler = null;
+                }
+            }
+
+            _startPlayback(track, gen) {
+                if (gen !== this._playGen) return;
+                const p = this.audio.play();
+                if (p !== undefined) {
+                    p.then(() => {
+                        if (gen !== this._playGen) return;
+                        this._loading = false;
+                        this.isPlaying = true;
+                        this.updatePlayerUI();
+                        this.updateButton();
+                        console.log('🎵 Now playing:', track.title, 'by', track.artist, this._activeSrc);
+                    }).catch(err => {
+                        if (gen !== this._playGen) return;
+                        this._loading = false;
+                        this.isPlaying = false;
+                        if (err.name === 'AbortError') {
+                            this.updatePlayerUI();
+                        } else if (err.name === 'NotAllowedError') {
+                            console.info('🎵 Waiting for user interaction to start audio');
+                            this.updatePlayerUI();
+                        } else {
+                            console.warn('🎵 Play failed:', err.message);
+                            this._handleTrackFailure(track, gen);
+                        }
+                    });
+                } else {
+                    this._loading = false;
+                    this.isPlaying = true;
+                    this.updatePlayerUI();
+                }
+            }
+
+            _handleTrackFailure(track, gen) {
+                if (gen !== this._playGen) return;
+                const tried = track._triedUrls || [];
+                const all = this._candidateUrls(track.file);
+                const next = all.find(u => !tried.includes(u));
+                if (next) {
+                    console.warn('🎵 Retrying track with fallback URL:', next);
+                    this._loadTrackUrl(track, next, gen);
+                    return;
+                }
+                console.warn('🎵 Giving up on track after fallbacks:', track.file);
+                if (track.file) this._brokenTracks.add(track.file);
+                this._loading = false;
+                this.isPlaying = false;
+                this.updatePlayerUI();
+                setTimeout(() => {
+                    if (gen === this._playGen) this.playNext();
+                }, 250);
+            }
+
+            _loadTrackUrl(track, url, gen) {
+                if (gen !== this._playGen) return;
+                if (!track._triedUrls) track._triedUrls = [];
+                if (!track._triedUrls.includes(url)) track._triedUrls.push(url);
+
+                this._detachTransientHandlers();
+                this._activeSrc = url;
+                this._loading = true;
+
+                this._canPlayHandler = () => {
+                    if (gen !== this._playGen) return;
+                    this._detachTransientHandlers();
+                    this._startPlayback(track, gen);
+                };
+                this._errorHandler = () => {
+                    if (gen !== this._playGen) return;
+                    // MEDIA_ERR_ABORTED
+                    if (this.audio.error && this.audio.error.code === 1) return;
+                    console.warn('🎵 Audio error:', url, this.audio.error?.code);
+                    this._detachTransientHandlers();
+                    this._handleTrackFailure(track, gen);
+                };
+
+                this.audio.addEventListener('canplay', this._canPlayHandler, { once: true });
+                this.audio.addEventListener('loadeddata', this._canPlayHandler, { once: true });
+                this.audio.addEventListener('error', this._errorHandler, { once: true });
+
+                try {
+                    this.audio.pause();
+                } catch (e) {}
+                // Setting src begins fetch — avoid extra load() which aborts and races errors.
+                this.audio.preload = 'auto';
+                this.audio.src = url;
+
+                // Safety timeout — large files on slow hosts
+                setTimeout(() => {
+                    if (gen !== this._playGen) return;
+                    if (this.isPlaying || this.audio.readyState >= 2) return;
+                    console.warn('🎵 Track load timeout:', url);
+                    this._detachTransientHandlers();
+                    this._handleTrackFailure(track, gen);
+                }, 12000);
             }
 
             init() {
@@ -27025,12 +28197,10 @@ const SHIP_IMAGE_DATA = {
             }
 
             play(index) {
-                // Prevent concurrent calls from stacking
-                if (this._loading) return;
                 if (!this.playlist.length) return;
-
+                // Allow barge-in: cancel in-flight load and start the requested track
                 if (index !== undefined) this.currentIndex = index;
-                // Skip known-broken entries instead of thrashing the error loop
+
                 let attempts = 0;
                 while (attempts < this.playlist.length) {
                     const trackIdx = this.playlist[this.currentIndex];
@@ -27050,49 +28220,12 @@ const SHIP_IMAGE_DATA = {
                 const track = this.tracks[trackIdx];
                 if (!track) return;
                 track.file = this._normalizeTrackPath(track.file);
+                track._triedUrls = [];
 
-                this._loading = true;
-
-                // Set the track source — for data: URIs we track by index,
-                // for file paths we compare src. Always set on index change.
-                const newSrc = track.file;
-                const isSameTrack = (this._lastPlayedIndex === this.currentIndex) && this.audio.src && this.audio.readyState > 0;
-                if (!isSameTrack) {
-                    this.audio.pause();
-                    this.audio.src = newSrc;
-                    this.audio.load();
-                    this._lastPlayedIndex = this.currentIndex;
-                }
-
-                const p = this.audio.play();
-                if (p !== undefined) {
-                    p.then(() => {
-                        this._loading = false;
-                        this.isPlaying = true;
-                        this.updatePlayerUI();
-                        this.updateButton();
-                        console.log('🎵 Now playing:', track.title, 'by', track.artist);
-                    }).catch(err => {
-                        this._loading = false;
-                        this.isPlaying = false;
-                        if (err.name === 'AbortError') {
-                            // Interrupted by src change — not a real error, just update UI
-                            this.updatePlayerUI();
-                        } else if (err.name === 'NotAllowedError') {
-                            // Browser autoplay policy — silently wait for user gesture
-                            console.info('🎵 Waiting for user interaction to start audio');
-                            this.updatePlayerUI();
-                        } else {
-                            console.warn('🎵 Play failed:', err.message);
-                            this.updatePlayerUI();
-                        }
-                    });
-                } else {
-                    // Older browser — assume playing
-                    this._loading = false;
-                    this.isPlaying = true;
-                    this.updatePlayerUI();
-                }
+                const gen = ++this._playGen;
+                this._lastPlayedIndex = this.currentIndex;
+                this.isPlaying = false;
+                this._loadTrackUrl(track, this._candidateUrls(track.file)[0], gen);
             }
 
             pause() {
@@ -28777,9 +29910,9 @@ window.tutorialManager = (() => {
             id: 'scout',
             icon: '🔭',
             title: 'Scout a Planet',
-            body: `On the left, Planet Management opens on the <strong>Owned</strong> tab. Press the highlighted <strong style="color:#00d9ff;">🔭 Scout New Planet</strong> button.\n\nThe click spends credits and HE3, then scans for up to 15 seconds. This window counts down as soon as the scan starts. Next unlocks when a world is actually found, and that world is placed near one you already own so it shows on the Available tab.`,
-            hint: 'If the button cannot be afforded, the reason appears here. A second click during the countdown does not start another scan.',
-            target: 'button[onclick="window.game.scoutNewPlanet()"]',
+            body: `On the left, Planet Management opens on the <strong>Owned</strong> tab. Use the highlighted <strong style="color:#00d9ff;">🔭 Scout Planets</strong> panel. 1× needs 5 scout ships, 2× needs 10, 3× needs 20, and so on.\n\nLaunch spends scout ships plus credits and HE3, then scans briefly. Next unlocks when a world is actually found, and that world is placed near one you already own so it shows on the Available tab.`,
+            hint: 'New empires start with 5 scout ships (enough for 1×). Use + to open more scouts if you have the ships.',
+            target: '#scoutLaunchBtn',
             position: 'right',
             waitFor: 'scout'
         },
