@@ -7271,7 +7271,7 @@
                 result: { type: 'techBonus', stat: 'damage', value: 20, display: '+20% Fleet Weapon Damage (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 12000,
                 craftTime: 180,
-                repeatable: false,
+                repeatable: true,
             },
             quantumShielding: {
                 id: 'quantumShielding',
@@ -7286,7 +7286,7 @@
                 result: { type: 'techBonus', stat: 'shields', value: 20, display: '+20% Fleet Shield Strength (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 15000,
                 craftTime: 240,
-                repeatable: false,
+                repeatable: true,
             },
             bioMechanicalAugment: {
                 id: 'bioMechanicalAugment',
@@ -7301,7 +7301,7 @@
                 result: { type: 'techBonus', stat: 'damage', value: 15, display: '+15% Fleet Weapon Damage (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 8000,
                 craftTime: 150,
-                repeatable: false,
+                repeatable: true,
             },
             arachnidSensorWeb: {
                 id: 'arachnidSensorWeb',
@@ -7333,7 +7333,7 @@
                 result: { type: 'techBonus', stat: 'credits', value: 25, display: '+25% Credit Generation (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 20000,
                 craftTime: 300,
-                repeatable: false,
+                repeatable: true,
             },
             deathLilyToxin: {
                 id: 'deathLilyToxin',
@@ -7348,7 +7348,7 @@
                 result: { type: 'techBonus', stat: 'planetDefense', value: 30, display: '+30% Planet Defense (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 14000,
                 craftTime: 200,
-                repeatable: false,
+                repeatable: true,
             },
             platinumMiningOps: {
                 id: 'platinumMiningOps',
@@ -7363,7 +7363,7 @@
                 result: { type: 'techBonus', stat: 'metal', value: 30, display: '+30% Metal Production (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 12000,
                 craftTime: 180,
-                repeatable: false,
+                repeatable: true,
             },
             bioluminescentFarms: {
                 id: 'bioluminescentFarms',
@@ -7378,7 +7378,7 @@
                 result: { type: 'techBonus', stat: 'food', value: 30, display: '+30% Food Production (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 8000,
                 craftTime: 120,
-                repeatable: false,
+                repeatable: true,
             },
             crystalResearchArray: {
                 id: 'crystalResearchArray',
@@ -7393,7 +7393,7 @@
                 result: { type: 'techBonus', stat: 'research', value: 40, display: '+40% Research Point Generation (48h)', duration: 48 * 60 * 60 * 1000 },
                 creditCost: 18000,
                 craftTime: 240,
-                repeatable: false,
+                repeatable: true,
             },
 
             // ── LEGENDARY WEAPONS (require Ancient Artifact Fragment) ───
@@ -7434,7 +7434,7 @@
                 ]},
                 creditCost: 60000,
                 craftTime: 480,
-                repeatable: false,
+                repeatable: true,
             },
 
             // ── VOID BOSS ────────────────────────────────────────────────
@@ -7470,9 +7470,10 @@
                 metalCost: 200000,
                 he3Cost: 155500,
                 craftTime: 600, // 10 minutes
-                repeatable: false,
+                repeatable: true,
             },
             firehawkFighter: {
+                id: 'firehawkFighter',
                 name: 'The Firehawk Fighter',
                 icon: '🔥',
                 category: 'ship',
@@ -7488,7 +7489,7 @@
                 metalCost:  200000,
                 he3Cost:    100000,
                 craftTime: 120, // 2 minutes
-                repeatable: false,
+                repeatable: true,
                 allRaces: true, // available to every race
             },
         };
@@ -12009,7 +12010,8 @@
             }
 
             // ── Artifact listings ────────────────────────────────────────
-            createArtifactListing(seller, artifactId, artifactName, artifactIcon, price, inventoryItemId) {
+            createArtifactListing(seller, artifactId, artifactName, artifactIcon, price, inventoryItemId, currency = 'credits') {
+                const payCurrency = (currency === 'horizonCoins') ? 'horizonCoins' : 'credits';
                 const listing = {
                     id: this.nextListingId++,
                     seller,
@@ -12019,6 +12021,7 @@
                     artifactIcon,
                     inventoryItemId,
                     price,
+                    currency: payCurrency,
                     createdAt: new Date().toISOString(),
                     status: 'active'
                 };
@@ -12175,7 +12178,13 @@
                     container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-secondary);">No artifacts listed. Sell yours from your Inventory!</div>';
                     return;
                 }
-                container.innerHTML = listings.map(l => `
+                container.innerHTML = listings.map(l => {
+                    const cur = l.currency === 'horizonCoins' ? 'horizonCoins' : 'credits';
+                    const priceLabel = cur === 'horizonCoins'
+                        ? `💎 ${Number(l.price).toLocaleString()} HC`
+                        : `₡ ${Number(l.price).toLocaleString()}`;
+                    const priceColor = cur === 'horizonCoins' ? '#00d9ff' : '#a855f7';
+                    return `
                     <div class="market-listing-card" style="border-color:rgba(168,85,247,0.3);">
                         <div class="market-listing-header">
                             <div>
@@ -12187,41 +12196,58 @@
                         <div class="market-listing-body">
                             <div class="market-listing-price">
                                 <span style="font-size:12px;color:var(--text-secondary);">Price:</span>
-                                <span style="font-size:20px;font-weight:900;color:#a855f7;">₡ ${l.price.toLocaleString()}</span>
+                                <span style="font-size:20px;font-weight:900;color:${priceColor};">${priceLabel}</span>
                             </div>
                         </div>
                         <button class="market-buy-btn" style="background:linear-gradient(135deg,#a855f7,#7c3aed);"
                             onclick="marketUI.buyArtifactListing(${l.id})">Buy Artifact</button>
-                    </div>
-                `).join('');
+                    </div>`;
+                }).join('');
             }
 
             buyArtifactListing(listingId) {
                 const listing = marketManager.listings.find(l => l.id === listingId);
                 if (!listing) return;
-                if (game.resources.credits < listing.price) {
+                const currency = listing.currency === 'horizonCoins' ? 'horizonCoins' : 'credits';
+                const price = Number(listing.price) || 0;
+                if (currency === 'horizonCoins') {
+                    if ((game.horizonCoins || 0) < price) {
+                        game.showNotification('⚠️ Insufficient Horizon Coins!');
+                        return;
+                    }
+                } else if ((game.resources.credits || 0) < price) {
                     game.showNotification('⚠️ Insufficient credits!');
                     return;
                 }
                 const result = marketManager.buyArtifactListing(listingId, game.playerData.username);
                 if (result.success) {
-                    game.resources.credits -= listing.price;
-                    // Grant artifact to buyer's inventory
-                    game.inventory.push({
-                        id: Date.now().toString() + Math.random().toString(36).slice(2),
-                        artifactId: listing.artifactId,
-                        foundAt: Date.now(),
-                        source: 'market',
-                        planetName: 'Player Market'
-                    });
-                    // If seller is the current player (single-player context), also give them credits
-                    if (listing.seller === game.playerData.username) {
-                        game.resources.credits += listing.price;
+                    if (currency === 'horizonCoins') {
+                        game.horizonCoins = Math.max(0, (game.horizonCoins || 0) - price);
+                        if (listing.seller === game.playerData.username) {
+                            game.horizonCoins = (game.horizonCoins || 0) + price;
+                        }
+                    } else {
+                        game.resources.credits -= price;
+                        if (listing.seller === game.playerData.username) {
+                            game.resources.credits += price;
+                        }
                     }
+                    // Grant artifact to buyer's inventory
+                    game.addInventoryItem({
+                        artifactId: listing.artifactId,
+                        foundAt: new Date().toISOString(),
+                        source: 'market',
+                        planetName: 'Player Market',
+                        quantity: 1
+                    });
                     game.updateResources();
+                    if (typeof game.updateDisplay === 'function') game.updateDisplay();
                     game.renderInventory && game.renderInventory();
                     game.saveGameState();
-                    game.showNotification(`✅ Purchased ${listing.artifactIcon} ${listing.artifactName} for ₡${listing.price.toLocaleString()}`);
+                    const paid = currency === 'horizonCoins'
+                        ? `💎 ${price.toLocaleString()} HC`
+                        : `₡${price.toLocaleString()}`;
+                    game.showNotification(`✅ Purchased ${listing.artifactIcon} ${listing.artifactName} for ${paid}`);
                     this.renderArtifactListings();
                 } else {
                     game.showNotification(`⚠️ ${result.error}`);
@@ -12243,8 +12269,12 @@
                     const isArtifact = listing.listingType === 'artifact';
                     const icon = isArtifact ? listing.artifactIcon : resourceIcons[listing.resourceType];
                     const label = isArtifact ? listing.artifactName : listing.resourceType?.toUpperCase();
+                    const artCurrency = listing.currency === 'horizonCoins' ? 'horizonCoins' : 'credits';
+                    const artPriceLabel = artCurrency === 'horizonCoins'
+                        ? `💎 ${Number(listing.price || 0).toLocaleString()} HC`
+                        : `₡ ${Number(listing.price || 0).toLocaleString()}`;
                     const priceDisplay = isArtifact
-                        ? `<div>Price: 💰 ${listing.price?.toLocaleString()}</div>`
+                        ? `<div>Price: ${artPriceLabel}</div>`
                         : `<div>Quantity: ${listing.quantity?.toLocaleString()}</div>
                            <div>Price/unit: 💰 ${listing.pricePerUnit?.toLocaleString()}</div>
                            <div>Total: 💰 ${listing.totalPrice?.toLocaleString()}</div>`;
@@ -12336,8 +12366,7 @@
                     if (listing.listingType === 'artifact') {
                         // Return artifact to inventory
                         if (ARTIFACTS[listing.artifactId]) {
-                            game.inventory.push({
-                                id: Date.now().toString() + Math.random().toString(36).slice(2),
+                            game.addInventoryItem({
                                 artifactId: listing.artifactId,
                                 foundAt: Date.now(),
                                 source: 'marketReturn',
@@ -14390,6 +14419,15 @@ const SHIP_IMAGE_DATA = {
                         console.log(`🏛️ Loaded guild: ${this.guildId} (${this.guildRole})`);
                     }
                     
+                    // Load personal inventory (crafting materials stack on load)
+                    if (Array.isArray(playerData.gameState.inventory)) {
+                        this.inventory = playerData.gameState.inventory;
+                        if (typeof this.compactInventoryStacks === 'function') this.compactInventoryStacks();
+                        console.log(`Loaded ${this.inventory.length} inventory stacks/items`);
+                    } else if (!this.inventory) {
+                        this.inventory = [];
+                    }
+
                     // Load guild inventory and name
                     if (playerData.gameState.guildInventory) {
                         this.guildInventory = playerData.gameState.guildInventory;
@@ -14494,6 +14532,7 @@ const SHIP_IMAGE_DATA = {
                     ),
                     buildQueue: this.buildQueue,
                     clusters: this.clusters,
+                    inventory: this.inventory || [],
                     guildId: this.guildId,
                     guildRole: this.guildRole,
                     guildInventory: this.guildInventory || [],
@@ -18516,12 +18555,13 @@ const SHIP_IMAGE_DATA = {
                 if (!this.inventory) this.inventory = [];
                 artifactIds.forEach(id => {
                     if (id && ARTIFACTS[id]) {
-                        this.inventory.push({
-                            id: Date.now().toString() + Math.random().toString(36).slice(2),
+                        this.addInventoryItem({
                             artifactId: id,
                             name: ARTIFACTS[id].name,
+                            icon: ARTIFACTS[id].icon,
                             foundAt: new Date().toISOString(),
                             source,
+                            quantity: 1
                         });
                     }
                 });
@@ -19028,44 +19068,55 @@ const SHIP_IMAGE_DATA = {
                 const ownedPlanets = this.planets.filter(p => this._isMyPlanet(p));
                 if (ownedPlanets.length === 0) return;
 
-                // Build a clip region that is the INVERSE of all sensor circles:
-                // Fill the whole canvas with fog, but use an even-odd clip path
-                // that subtracts each sensor circle — no compositing required.
-                ctx.save();
+                // Punch sensor holes with destination-out on an offscreen layer.
+                // evenodd clip incorrectly re-fogs overlapping sensor circles
+                // (rect+c1+c2 = odd coverage → fog in the intersection).
+                if (!this._fogCanvas) this._fogCanvas = document.createElement('canvas');
+                const fog = this._fogCanvas;
+                if (fog.width !== canvas.width || fog.height !== canvas.height) {
+                    fog.width = canvas.width;
+                    fog.height = canvas.height;
+                }
+                const fctx = fog.getContext('2d');
+                fctx.setTransform(1, 0, 0, 1, 0, 0);
+                fctx.globalCompositeOperation = 'source-over';
+                fctx.globalAlpha = 1;
+                fctx.clearRect(0, 0, fog.width, fog.height);
+                fctx.fillStyle = 'rgba(0, 0, 12, 0.93)';
+                fctx.fillRect(0, 0, fog.width, fog.height);
 
-                // Define clip path: outer canvas rect + all sensor holes (even-odd rule
-                // means overlapping regions cancel out, punching holes in the fog)
-                ctx.beginPath();
-                ctx.rect(0, 0, canvas.width, canvas.height);
-                ownedPlanets.forEach(planet => {
+                fctx.globalCompositeOperation = 'destination-out';
+                for (const planet of ownedPlanets) {
                     const sx = centerX + (planet.position.x + this.mapPan.x) * this.mapZoom;
                     const sy = centerY + (planet.position.y + this.mapPan.y) * this.mapZoom;
                     const sr = this.getSensorRadius(planet) * this.mapZoom;
-                    ctx.moveTo(sx + sr, sy);
-                    ctx.arc(sx, sy, sr, 0, Math.PI * 2, false);
-                });
-                ctx.clip('evenodd');
+                    if (!(sr > 0)) continue;
+                    // Soft rim so vision fades at the edge; overlaps correctly form a union
+                    const inner = Math.max(0, sr * 0.88);
+                    const g = fctx.createRadialGradient(sx, sy, inner, sx, sy, sr);
+                    g.addColorStop(0, 'rgba(0,0,0,1)');
+                    g.addColorStop(1, 'rgba(0,0,0,0)');
+                    fctx.fillStyle = g;
+                    fctx.beginPath();
+                    fctx.arc(sx, sy, sr, 0, Math.PI * 2);
+                    fctx.fill();
+                }
+                fctx.globalCompositeOperation = 'source-over';
+                ctx.drawImage(fog, 0, 0);
 
-                // Fill fog only where clip allows (outside sensor circles)
-                ctx.fillStyle = 'rgba(0, 0, 12, 0.93)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.restore();
-
-                // Soft blue glow at sensor edge — drawn WITHOUT clip
+                // Thin sensor rim (stroke only — fill glows stacked into a bright blue blob)
                 ctx.save();
-                ownedPlanets.forEach(planet => {
+                ctx.strokeStyle = 'rgba(0, 180, 255, 0.28)';
+                ctx.lineWidth = Math.max(1, Math.min(2.5, 1.25 * this.mapZoom));
+                for (const planet of ownedPlanets) {
                     const sx = centerX + (planet.position.x + this.mapPan.x) * this.mapZoom;
                     const sy = centerY + (planet.position.y + this.mapPan.y) * this.mapZoom;
                     const sr = this.getSensorRadius(planet) * this.mapZoom;
-                    const edgeGrad = ctx.createRadialGradient(sx, sy, sr * 0.82, sx, sy, sr * 1.08);
-                    edgeGrad.addColorStop(0,   'rgba(0, 150, 255, 0)');
-                    edgeGrad.addColorStop(0.5, 'rgba(0, 150, 255, 0.07)');
-                    edgeGrad.addColorStop(1,   'rgba(0, 150, 255, 0)');
-                    ctx.fillStyle = edgeGrad;
+                    if (!(sr > 0)) continue;
                     ctx.beginPath();
-                    ctx.arc(sx, sy, sr * 1.08, 0, Math.PI * 2);
-                    ctx.fill();
-                });
+                    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
                 ctx.restore();
             }
 
@@ -21305,27 +21356,28 @@ const SHIP_IMAGE_DATA = {
                     });
                     this.showNotification('🎵 Ancient Audio Disc added to Inventory! Use it to unlock a track.');
                 } else if (artifact.type === 'crafting') {
-                    // Add to inventory for crafting
-                    this.inventory.push({
-                        id: Date.now(),
+                    // Stack crafting materials in inventory
+                    this.addInventoryItem({
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
                         planetName: planetName,
-                        type: 'crafting'
+                        type: 'crafting',
+                        quantity: 1
                     });
                     
                     // Special handling for Ancient Artifact Fragments
                     if (artifact.id === 'fragment') {
-                        const fragmentCount = this.inventory.filter(i => i.artifactId === 'fragment').length;
+                        const fragmentCount = this.getInventoryCount('fragment');
                         this.showNotification(`💎 Ancient Artifact Fragment collected! (${fragmentCount}/3 for Ultimate Weapon)`);
                         
                         if (fragmentCount >= 3) {
                             this.showNotification(`🔥 You have 3 fragments! Ultimate Weapon research available!`);
                         }
                     } else {
-                        this.showNotification(`🔨 Crafting material acquired! Check Inventory.`);
+                        const stacked = this.getInventoryCount(artifact.id);
+                        this.showNotification(`🔨 ${artifact.name} acquired! (×${stacked}) Check Inventory.`);
                     }
                 } else if (artifact.type === 'permanent') {
                     // Add to inventory for permanent bonuses
@@ -23857,8 +23909,75 @@ const SHIP_IMAGE_DATA = {
                 }
             }
             
+            syncBuildQuantitiesFromDom() {
+                try {
+                    document.querySelectorAll('#shipBuildList input.quantity-input[data-ship-name]').forEach(input => {
+                        const name = input.getAttribute('data-ship-name');
+                        if (!name) return;
+                        const raw = String(input.value ?? '').trim();
+                        if (raw === '') return; // keep previous while user clears to retype
+                        const n = parseInt(raw, 10);
+                        if (!Number.isNaN(n)) {
+                            this.buildQuantities[name] = Math.max(1, Math.min(1000, n));
+                        }
+                    });
+                } catch (e) {}
+            }
+
+            getBuildQuantityDisplay(shipName) {
+                const active = document.activeElement;
+                if (active && active.classList?.contains('quantity-input') &&
+                    active.getAttribute('data-ship-name') === shipName) {
+                    return active.value;
+                }
+                return this.buildQuantities[shipName] || 1;
+            }
+
+            renderBuildQueueOnly() {
+                const queueRoot = document.getElementById('shipBuildQueue');
+                if (!queueRoot) {
+                    // Queue block missing (first item just queued elsewhere) — full rebuild once
+                    if ((this.buildQueue || []).length > 0) this.renderShipBuildList();
+                    return;
+                }
+                if (!this.buildQueue || this.buildQueue.length === 0) {
+                    queueRoot.remove();
+                    return;
+                }
+                queueRoot.innerHTML = `
+                    <div style="font-weight: 700; font-size: 12px; color: var(--accent-primary); margin-bottom: 12px; text-transform: uppercase;">
+                        🏭 Build Queue (${this.buildQueue.length})
+                    </div>
+                    ${this.buildQueue.map(build => {
+                        const progress = ((build.totalTime - build.timeRemaining) / build.totalTime) * 100;
+                        return `
+                            <div style="margin-bottom: 12px; padding: 10px; background: var(--bg-secondary); border-radius: 6px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                                    <span style="font-weight: 600; font-size: 12px;">${build.icon} ${build.quantity}x ${build.shipName}</span>
+                                    <span style="font-size: 11px; color: var(--text-secondary);">${build.timeRemaining}s remaining</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-fill" style="width: ${progress}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                `;
+            }
+
             renderShipBuildList() {
                 if (typeof this.refreshScoutPanel === 'function') this.refreshScoutPanel();
+                this.syncBuildQuantitiesFromDom();
+
+                // Preserve focus if the player is typing a custom quantity
+                const prevActive = document.activeElement;
+                const focusShip = (prevActive && prevActive.classList?.contains('quantity-input'))
+                    ? prevActive.getAttribute('data-ship-name')
+                    : null;
+                const focusValue = focusShip ? prevActive.value : null;
+                const focusStart = focusShip ? prevActive.selectionStart : null;
+                const focusEnd = focusShip ? prevActive.selectionEnd : null;
+
                 const container = document.getElementById('shipBuildList');
                 const researchedShips = Object.values(this.ships).filter(ship => ship.researched);
                 const specialShips = this.getSpecialShips();
@@ -23888,7 +24007,7 @@ const SHIP_IMAGE_DATA = {
                 
                 container.innerHTML = `
                     ${this.buildQueue.length > 0 ? `
-                        <div style="margin-bottom: 16px; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--accent-primary); border-radius: 8px;">
+                        <div id="shipBuildQueue" style="margin-bottom: 16px; padding: 12px; background: var(--bg-tertiary); border: 1px solid var(--accent-primary); border-radius: 8px;">
                             <div style="font-weight: 700; font-size: 12px; color: var(--accent-primary); margin-bottom: 12px; text-transform: uppercase;">
                                 🏭 Build Queue (${this.buildQueue.length})
                             </div>
@@ -23916,6 +24035,7 @@ const SHIP_IMAGE_DATA = {
                             </div>
                             ${specialShips.map(ship => {
                                 const quantity = this.buildQuantities[ship.name] || 1;
+                                const displayQty = this.getBuildQuantityDisplay(ship.name);
                                 const totalMetal = ship.metalCost * quantity;
                                 const totalHe3 = ship.he3Cost * quantity;
                                 const totalCredits = ship.creditCost * quantity;
@@ -23947,9 +24067,11 @@ const SHIP_IMAGE_DATA = {
                                                 <button class="quantity-btn" onclick="window.game.adjustBuildQuantity('${ship.name}', -1)">−</button>
                                                 <input type="number" 
                                                        class="quantity-input" 
-                                                       value="${quantity}" 
+                                                       data-ship-name="${ship.name}"
+                                                       value="${displayQty}" 
                                                        min="1" 
                                                        max="1000"
+                                                       oninput="game.setBuildQuantity('${ship.name}', this.value, true)"
                                                        onchange="game.setBuildQuantity('${ship.name}', this.value)">
                                                 <button class="quantity-btn" onclick="window.game.adjustBuildQuantity('${ship.name}', 1)">+</button>
                                             </div>
@@ -23988,6 +24110,7 @@ const SHIP_IMAGE_DATA = {
                     
                     ${researchedShips.map(ship => {
                     const quantity = this.buildQuantities[ship.name] || 1;
+                    const displayQty = this.getBuildQuantityDisplay(ship.name);
                     const totalMetal = ship.metalCost * quantity;
                     const totalCredits = ship.creditCost * quantity;
                     const canAfford = this.resources.metal >= totalMetal && this.resources.credits >= totalCredits;
@@ -24014,9 +24137,11 @@ const SHIP_IMAGE_DATA = {
                                     <button class="quantity-btn" onclick="window.game.adjustBuildQuantity('${ship.name}', -1)">−</button>
                                     <input type="number" 
                                            class="quantity-input" 
-                                           value="${quantity}" 
+                                           data-ship-name="${ship.name}"
+                                           value="${displayQty}" 
                                            min="1" 
                                            max="1000"
+                                           oninput="game.setBuildQuantity('${ship.name}', this.value, true)"
                                            onchange="game.setBuildQuantity('${ship.name}', this.value)">
                                     <button class="quantity-btn" onclick="window.game.adjustBuildQuantity('${ship.name}', 1)">+</button>
                                 </div>
@@ -24045,19 +24170,82 @@ const SHIP_IMAGE_DATA = {
                     `;
                 }).join('')}
                 `;
+
+                if (focusShip) {
+                    const restored = container.querySelector(`input.quantity-input[data-ship-name="${CSS.escape(focusShip)}"]`);
+                    if (restored) {
+                        restored.focus();
+                        if (focusValue != null) restored.value = focusValue;
+                        try {
+                            if (focusStart != null && focusEnd != null) restored.setSelectionRange(focusStart, focusEnd);
+                        } catch (e) {}
+                    }
+                }
             }
             
             adjustBuildQuantity(shipName, delta) {
+                this.syncBuildQuantitiesFromDom();
                 const current = this.buildQuantities[shipName] || 1;
                 const newValue = Math.max(1, Math.min(1000, current + delta));
                 this.buildQuantities[shipName] = newValue;
                 this.renderShipBuildList();
             }
             
-            setBuildQuantity(shipName, value) {
-                const quantity = Math.max(1, Math.min(1000, parseInt(value) || 1));
+            setBuildQuantity(shipName, value, live = false) {
+                const raw = String(value ?? '').trim();
+                if (raw === '') {
+                    // Allow clearing while typing; commit to 1 only on blur/change
+                    if (!live) this.buildQuantities[shipName] = 1;
+                    return;
+                }
+                const parsed = parseInt(raw, 10);
+                if (Number.isNaN(parsed)) return;
+                const quantity = Math.max(1, Math.min(1000, parsed));
                 this.buildQuantities[shipName] = quantity;
-                this.renderShipBuildList();
+                // Live typing must NOT rebuild the list — that steals focus every keystroke / queue tick
+                if (!live) this.renderShipBuildList();
+                else this.updateBuildCostLabels(shipName, quantity);
+            }
+
+            updateBuildCostLabels(shipName, quantity) {
+                try {
+                    const input = document.querySelector(`#shipBuildList input.quantity-input[data-ship-name="${CSS.escape(shipName)}"]`);
+                    if (!input) return;
+                    const item = input.closest('.ship-build-item');
+                    if (!item) return;
+                    const ship = this.ships[shipName] || this.getSpecialShips?.()?.find(s => s.name === shipName);
+                    if (!ship) return;
+                    const qty = quantity || this.buildQuantities[shipName] || 1;
+                    const buildBtn = item.querySelector('.build-btn');
+                    if (buildBtn && !buildBtn.disabled) {
+                        // Keep label in sync while typing; disabled state refreshed on full render
+                    }
+                    if (buildBtn) buildBtn.textContent = `Build ${qty}`;
+                    const metal = (ship.metalCost || 0) * qty;
+                    const credits = (ship.creditCost || 0) * qty;
+                    const he3 = (ship.he3Cost || 0) * qty;
+                    const costSpans = item.querySelectorAll('.build-cost-item span:last-child');
+                    // Order: metal, then credits (regular) OR metal, he3, credits (special)
+                    if (costSpans.length >= 2) {
+                        costSpans[0].textContent = metal.toLocaleString();
+                        costSpans[0].style.color = this.resources.metal >= metal ? 'var(--accent-secondary)' : 'var(--accent-danger)';
+                    }
+                    if (ship.he3Cost != null && costSpans.length >= 3) {
+                        costSpans[1].textContent = he3.toLocaleString();
+                        costSpans[1].style.color = this.resources.he3 >= he3 ? 'var(--accent-secondary)' : 'var(--accent-danger)';
+                        costSpans[2].textContent = credits.toLocaleString();
+                        costSpans[2].style.color = this.resources.credits >= credits ? 'var(--accent-secondary)' : 'var(--accent-danger)';
+                    } else if (costSpans.length >= 2) {
+                        costSpans[1].textContent = credits.toLocaleString();
+                        costSpans[1].style.color = this.resources.credits >= credits ? 'var(--accent-secondary)' : 'var(--accent-danger)';
+                    }
+                    if (buildBtn) {
+                        const canAfford = ship.he3Cost != null
+                            ? (this.resources.metal >= metal && this.resources.he3 >= he3 && this.resources.credits >= credits)
+                            : (this.resources.metal >= metal && this.resources.credits >= credits);
+                        buildBtn.disabled = !canAfford;
+                    }
+                } catch (e) {}
             }
             
             buildShips(shipName) {
@@ -24397,7 +24585,8 @@ const SHIP_IMAGE_DATA = {
                     return build;
                 }).filter(b => b !== null);
                 
-                this.renderShipBuildList();
+                // Only refresh queue progress — full list rebuild steals focus from quantity inputs
+                this.renderBuildQueueOnly();
               } catch(e) {
                 console.error('❌ updateBuildQueue error:', e);
               }
@@ -25599,7 +25788,9 @@ const SHIP_IMAGE_DATA = {
                 const currentCategory = this._inlineCraftCat;
 
                 const getMatCount = (artifactId) =>
-                    (this.inventory || []).filter(i => i.artifactId === artifactId).length;
+                    typeof this.getInventoryCount === 'function'
+                        ? this.getInventoryCount(artifactId)
+                        : (this.inventory || []).reduce((sum, i) => sum + (i.artifactId === artifactId ? Math.max(1, Number(i.quantity) || 1) : 0), 0);
 
                 const canCraft = (recipe) => {
                     if (!this.resources) return false;
@@ -25623,7 +25814,10 @@ const SHIP_IMAGE_DATA = {
 
                 const matCount = document.getElementById('researchCraftingMatCount');
                 if (matCount) {
-                    const mats = (this.inventory || []).filter(i => artifactsRef[i.artifactId]?.type === 'crafting').length;
+                    const mats = (this.inventory || []).reduce((sum, i) => {
+                        if (!artifactsRef[i.artifactId] || artifactsRef[i.artifactId].type !== 'crafting') return sum;
+                        return sum + Math.max(1, Number(i.quantity) || 1);
+                    }, 0);
                     matCount.textContent = `🧪 ${mats} material${mats !== 1 ? 's' : ''}`;
                 }
 
@@ -25691,8 +25885,8 @@ const SHIP_IMAGE_DATA = {
                     }
                 }
 
-                const allRecipes = (typeof CRAFTING_RECIPES !== 'undefined') ? Object.values(CRAFTING_RECIPES) : [];
-                const recipes = currentCategory === 'all' ? allRecipes : allRecipes.filter(r => r.category === currentCategory);
+                const allRecipes = (typeof CRAFTING_RECIPES !== 'undefined') ? Object.entries(CRAFTING_RECIPES) : [];
+                const recipes = currentCategory === 'all' ? allRecipes : allRecipes.filter(([, r]) => r.category === currentCategory);
 
                 const grid = document.getElementById('researchCraftingGrid');
                 if (!grid) return;
@@ -25701,9 +25895,10 @@ const SHIP_IMAGE_DATA = {
                     return;
                 }
 
-                grid.innerHTML = recipes.map(recipe => {
-                    const alreadyCrafted = !recipe.repeatable && craftedRecipes[recipe.id];
-                    const inQueue = craftingQueue.find(q => q.recipeId === recipe.id);
+                grid.innerHTML = recipes.map(([recipeKey, recipe]) => {
+                    const rid = recipe.id || recipeKey;
+                    const alreadyCrafted = !recipe.repeatable && craftedRecipes[rid];
+                    const inQueue = craftingQueue.find(q => q.recipeId === rid);
                     const craftable = canCraft(recipe);
                     const catColor = (CATS[recipe.category] || CATS.all).color;
                     const catLabel = (CATS[recipe.category] || CATS.all).label;
@@ -25738,7 +25933,7 @@ const SHIP_IMAGE_DATA = {
                         const pct = Math.min(100, ((Date.now()-inQueue.startTime)/inQueue.duration)*100).toFixed(0);
                         btn = `<button disabled style="width:100%;padding:7px;margin-top:8px;background:rgba(255,149,0,0.08);border:1px solid #ff9500;border-radius:5px;color:#ff9500;font-size:11px;font-weight:700;">⚙️ Crafting... ${pct}%</button>`;
                     } else if (craftable) {
-                        btn = `<button onclick="if(window.craftingManager){window.craftingManager.craft('${recipe.id}');setTimeout(()=>window.game.renderInlineCrafting(),700);}"
+                        btn = `<button onclick="if(window.craftingManager){window.craftingManager.craft('${rid}');setTimeout(()=>window.game.renderInlineCrafting(),700);}"
                             style="width:100%;padding:7px;margin-top:8px;background:${catColor}22;border:1px solid ${catColor};border-radius:5px;color:${catColor};font-size:11px;font-weight:700;cursor:pointer;">
                             ⚗️ Craft Now</button>`;
                     } else {
@@ -26760,7 +26955,128 @@ const SHIP_IMAGE_DATA = {
             
             // ===== INVENTORY SYSTEM METHODS =====
             
+
+            isStackableArtifact(artifactId) {
+                const def = (typeof ARTIFACTS !== 'undefined') ? ARTIFACTS[artifactId] : null;
+                return !!(def && def.type === 'crafting');
+            }
+
+            getInventoryCount(artifactId) {
+                return (this.inventory || []).reduce((sum, item) => {
+                    if (item.artifactId !== artifactId) return sum;
+                    return sum + Math.max(1, Number(item.quantity) || 1);
+                }, 0);
+            }
+
+            getInventoryUnitCount() {
+                return (this.inventory || []).reduce((sum, item) => {
+                    return sum + Math.max(1, Number(item.quantity) || 1);
+                }, 0);
+            }
+
+            compactInventoryStacks() {
+                if (!Array.isArray(this.inventory)) {
+                    this.inventory = [];
+                    return;
+                }
+                const kept = [];
+                const stacks = {};
+                this.inventory.forEach(item => {
+                    if (!item || !item.artifactId) return;
+                    if (!this.isStackableArtifact(item.artifactId)) {
+                        kept.push({ ...item, quantity: Math.max(1, Number(item.quantity) || 1) });
+                        return;
+                    }
+                    const key = item.artifactId;
+                    const qty = Math.max(1, Number(item.quantity) || 1);
+                    if (!stacks[key]) {
+                        stacks[key] = {
+                            ...item,
+                            id: item.id || (Date.now().toString() + Math.random().toString(36).slice(2)),
+                            quantity: qty
+                        };
+                    } else {
+                        stacks[key].quantity += qty;
+                        if (item.foundAt) stacks[key].foundAt = item.foundAt;
+                        if (item.planetName) stacks[key].planetName = item.planetName;
+                        if (item.source) stacks[key].source = item.source;
+                    }
+                });
+                this.inventory = kept.concat(Object.values(stacks));
+            }
+
+            addInventoryItem(opts = {}) {
+                if (!this.inventory) this.inventory = [];
+                const artifactId = opts.artifactId;
+                if (!artifactId) return null;
+                const qty = Math.max(1, Math.floor(Number(opts.quantity) || 1));
+                const def = (typeof ARTIFACTS !== 'undefined') ? ARTIFACTS[artifactId] : null;
+
+                if (this.isStackableArtifact(artifactId)) {
+                    let stack = this.inventory.find(i => i.artifactId === artifactId);
+                    if (stack) {
+                        stack.quantity = Math.max(1, Number(stack.quantity) || 1) + qty;
+                        if (opts.foundAt) stack.foundAt = opts.foundAt;
+                        if (opts.planetName) stack.planetName = opts.planetName;
+                        if (opts.source) stack.source = opts.source;
+                        if (opts.name) stack.name = opts.name;
+                        if (opts.icon) stack.icon = opts.icon;
+                        return stack;
+                    }
+                }
+
+                const item = {
+                    id: opts.id || (Date.now().toString() + Math.random().toString(36).slice(2)),
+                    artifactId,
+                    name: opts.name || (def && def.name) || artifactId,
+                    icon: opts.icon || (def && def.icon) || '📦',
+                    foundAt: opts.foundAt || new Date().toISOString(),
+                    planetName: opts.planetName,
+                    source: opts.source,
+                    type: opts.type || (def && def.type),
+                    quantity: this.isStackableArtifact(artifactId) ? qty : 1
+                };
+                if (opts.effect) item.effect = opts.effect;
+                if (opts.applied != null) item.applied = opts.applied;
+                this.inventory.push(item);
+                return item;
+            }
+
+            removeInventoryQuantity(artifactId, qty = 1) {
+                let need = Math.max(0, Math.floor(Number(qty) || 0));
+                if (!need || !this.inventory) return true;
+                for (const item of this.inventory) {
+                    if (need <= 0) break;
+                    if (item.artifactId !== artifactId) continue;
+                    const have = Math.max(1, Number(item.quantity) || 1);
+                    if (have <= need) {
+                        need -= have;
+                        item.quantity = 0;
+                    } else {
+                        item.quantity = have - need;
+                        need = 0;
+                    }
+                }
+                this.inventory = this.inventory.filter(i => Math.max(0, Number(i.quantity) || 0) > 0);
+                return need === 0;
+            }
+
+            consumeInventoryItemById(itemId, qty = 1) {
+                const item = (this.inventory || []).find(i => i.id == itemId);
+                if (!item) return null;
+                const take = Math.max(1, Math.floor(Number(qty) || 1));
+                const have = Math.max(1, Number(item.quantity) || 1);
+                const snapshot = { ...item, quantity: 1 };
+                if (have > take) {
+                    item.quantity = have - take;
+                } else {
+                    this.inventory = this.inventory.filter(i => i.id != itemId);
+                }
+                return snapshot;
+            }
+
             openInventory() {
+                if (typeof this.compactInventoryStacks === 'function') this.compactInventoryStacks();
                 document.getElementById('inventoryModal').style.display = 'block';
                 this.renderInventory();
             }
@@ -26773,10 +27089,12 @@ const SHIP_IMAGE_DATA = {
                 const grid = document.getElementById('inventoryGrid');
                 if (!grid) return;
                 
-                // Update counts
-                const fragmentCount = this.inventory.filter(i => i.artifactId === 'fragment').length;
+                this.compactInventoryStacks();
+
+                // Update counts (stack-aware)
+                const fragmentCount = this.getInventoryCount('fragment');
                 document.getElementById('fragmentCount').textContent = `${fragmentCount}/3`;
-                document.getElementById('totalArtifacts').textContent = this.inventory.length;
+                document.getElementById('totalArtifacts').textContent = this.getInventoryUnitCount();
                 
                 let activeBonuses = 0;
                 if (this.artifactBonuses.food > 0) activeBonuses++;
@@ -26898,14 +27216,19 @@ const SHIP_IMAGE_DATA = {
                         </div>`;
                     }
                     
+                    const stackQty = Math.max(1, Number(item.quantity) || 1);
+                    const isCraftMat = artifactDef.type === 'crafting';
+                    const stackBadge = (isCraftMat && stackQty > 1)
+                        ? `<div class="tech-status-badge researched" style="background:linear-gradient(135deg,#32CD32,#149414);">×${stackQty}</div>`
+                        : `<div class="tech-status-badge researched">✓ OWNED</div>`;
                     return `
                         <div class="tech-node researched">
-                            <div class="tech-status-badge researched">✓ OWNED</div>
+                            ${stackBadge}
                             ${artifactDef.image
-                                ? `<div class="tech-icon" style="padding:0;overflow:hidden;border-radius:8px;"><img src="${artifactDef.image}" alt="${artifactDef.name}" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.onerror=null;this.style.display='none';"></div>`
-                                : `<div class="tech-icon">${artifactDef.icon}</div>`
+                                ? `<div class="tech-icon" style="padding:0;overflow:hidden;border-radius:8px;position:relative;"><img src="${artifactDef.image}" alt="${artifactDef.name}" style="width:100%;height:100%;object-fit:cover;display:block;" onerror="this.onerror=null;this.style.display='none';">${isCraftMat && stackQty > 1 ? `<div style="position:absolute;right:4px;bottom:4px;background:rgba(0,0,0,0.75);color:#9dff9d;font-weight:900;font-size:12px;padding:2px 6px;border-radius:6px;">×${stackQty}</div>` : ''}</div>`
+                                : `<div class="tech-icon" style="position:relative;">${artifactDef.icon}${isCraftMat && stackQty > 1 ? `<div style="position:absolute;right:-4px;bottom:-4px;background:rgba(0,0,0,0.75);color:#9dff9d;font-weight:900;font-size:12px;padding:2px 6px;border-radius:6px;">×${stackQty}</div>` : ''}</div>`
                             }
-                            <div class="tech-name">${artifactDef.name}</div>
+                            <div class="tech-name">${artifactDef.name}${isCraftMat && stackQty > 1 ? ` <span style="color:#9dff9d;">×${stackQty}</span>` : ''}</div>
                             <div class="tech-description">${artifactDef.description}</div>
                             <div class="tech-effects">
                                 ${effectsHTML}
@@ -27112,6 +27435,7 @@ const SHIP_IMAGE_DATA = {
                 `;
                 
                 const suggestedPrice = artifactDef.marketValue || 10000;
+                const suggestedHC = Math.max(1, Math.ceil(suggestedPrice / 1000));
                 
                 modal.innerHTML = `
                     <div style="max-width: 500px; width: 100%; background: var(--bg-secondary); border: 3px solid var(--accent-warning); border-radius: 16px; overflow: hidden;">
@@ -27121,13 +27445,22 @@ const SHIP_IMAGE_DATA = {
                             </div>
                         </div>
                         <div style="padding: 30px;">
+                            <div style="margin-bottom: 16px;">
+                                <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">Currency</div>
+                                <div style="display:flex;gap:8px;">
+                                    <button type="button" id="sellCurrencyCredits" onclick="window._artifactSellCurrency='credits';document.getElementById('sellCurrencyCredits').style.outline='2px solid #fbbf24';document.getElementById('sellCurrencyHC').style.outline='none';document.getElementById('artifactPrice').value=${suggestedPrice};document.getElementById('artifactPriceHint').textContent='Suggested: ₡${suggestedPrice.toLocaleString()}';"
+                                        style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-primary);font-weight:700;cursor:pointer;outline:2px solid #fbbf24;">₡ Credits</button>
+                                    <button type="button" id="sellCurrencyHC" onclick="window._artifactSellCurrency='horizonCoins';document.getElementById('sellCurrencyHC').style.outline='2px solid #00d9ff';document.getElementById('sellCurrencyCredits').style.outline='none';document.getElementById('artifactPrice').value=${suggestedHC};document.getElementById('artifactPriceHint').textContent='Suggested: 💎 ${suggestedHC.toLocaleString()} HC';"
+                                        style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border-color);background:var(--bg-tertiary);color:var(--text-primary);font-weight:700;cursor:pointer;">💎 Horizon Coins</button>
+                                </div>
+                            </div>
                             <div style="margin-bottom: 20px;">
                                 <div style="font-size: 14px; color: var(--text-secondary); margin-bottom: 8px;">
                                     Set Your Price
                                 </div>
                                 <input type="number" id="artifactPrice" value="${suggestedPrice}" min="1" 
                                        style="width: 100%; padding: 12px; background: var(--bg-tertiary); border: 2px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 18px; font-weight: 700;">
-                                <div style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">
+                                <div id="artifactPriceHint" style="font-size: 12px; color: var(--text-secondary); margin-top: 6px;">
                                     💡 Suggested: ₡${suggestedPrice.toLocaleString()}
                                 </div>
                             </div>
@@ -27137,19 +27470,20 @@ const SHIP_IMAGE_DATA = {
                                         style="flex: 1; padding: 14px; background: var(--bg-tertiary); border: 2px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-weight: 700; cursor: pointer; font-size: 14px;">
                                     Cancel
                                 </button>
-                                <button onclick="window.game.confirmSellArtifact('${itemId}', parseInt(document.getElementById('artifactPrice').value)); this.closest('div[style*=fixed]').remove();"
+                                <button onclick="window.game.confirmSellArtifact('${itemId}', parseInt(document.getElementById('artifactPrice').value), (window._artifactSellCurrency||'credits')); this.closest('div[style*=fixed]').remove();"
                                         style="flex: 1; padding: 14px; background: linear-gradient(135deg, #fbbf24, #f59e0b); border: none; border-radius: 8px; color: black; font-weight: 700; cursor: pointer; font-size: 14px;">
-                                    💰 Sell Now
+                                    💰 List on Market
                                 </button>
                             </div>
                         </div>
                     </div>
                 `;
                 
+                window._artifactSellCurrency = 'credits';
                 document.body.appendChild(modal);
             }
             
-            confirmSellArtifact(itemId, price) {
+            confirmSellArtifact(itemId, price, currency = 'credits') {
                 const item = this.inventory.find(i => i.id == itemId);
                 if (!item) return;
                 
@@ -27161,8 +27495,10 @@ const SHIP_IMAGE_DATA = {
                     return;
                 }
 
-                // Remove from inventory — item is now "escrowed" in the listing
-                this.inventory = this.inventory.filter(i => i.id != itemId);
+                const payCurrency = (currency === 'horizonCoins') ? 'horizonCoins' : 'credits';
+
+                // Escrow one unit from the stack onto the market listing
+                this.consumeInventoryItemById(itemId, 1);
 
                 // Remove permanent bonuses if applicable
                 if (artifactDef.type === 'permanent' && artifactDef.bonuses) {
@@ -27181,10 +27517,14 @@ const SHIP_IMAGE_DATA = {
                     artifactDef.name,
                     artifactDef.icon,
                     price,
-                    itemId
+                    itemId,
+                    payCurrency
                 );
 
-                this.showNotification(`📦 ${artifactDef.icon} ${artifactDef.name} listed on market for ₡${price.toLocaleString()}. You'll receive credits when a buyer purchases it.`);
+                const priceLabel = payCurrency === 'horizonCoins'
+                    ? `💎 ${Number(price).toLocaleString()} Horizon Coins`
+                    : `₡${Number(price).toLocaleString()}`;
+                this.showNotification(`📦 ${artifactDef.icon} ${artifactDef.name} listed for ${priceLabel}. You'll be paid when a buyer purchases it.`);
                 this.renderInventory();
                 this.saveGameState();
             }
@@ -27196,12 +27536,14 @@ const SHIP_IMAGE_DATA = {
                 const artifactDef = ARTIFACTS[item.artifactId];
                 if (!artifactDef) return;
                 
-                // Confirm destruction
-                const confirmed = confirm(`⚠️ Permanently destroy ${artifactDef.name}?\n\nThis cannot be undone!`);
+                const qty = Math.max(1, Number(item.quantity) || 1);
+                const confirmed = confirm(qty > 1 && artifactDef.type === 'crafting'
+                    ? `⚠️ Destroy 1× ${artifactDef.name}? (You have ×${qty})\n\nThis cannot be undone!`
+                    : `⚠️ Permanently destroy ${artifactDef.name}?\n\nThis cannot be undone!`);
                 if (!confirmed) return;
                 
-                // Remove from inventory
-                this.inventory = this.inventory.filter(i => i.id != itemId);
+                // Remove one unit from stack (or the whole non-stack item)
+                this.consumeInventoryItemById(itemId, 1);
                 
                 // Remove bonuses if permanent
                 if (artifactDef.type === 'permanent' && artifactDef.bonuses) {
@@ -27262,8 +27604,10 @@ const SHIP_IMAGE_DATA = {
                 const artifactDef = ARTIFACTS[item.artifactId];
                 if (!artifactDef) return;
                 
-                // Confirm donation
-                const confirmed = confirm(`🏛️ Donate ${artifactDef.name} to your guild?\n\nThis will make it available to all guild members!`);
+                const qty = Math.max(1, Number(item.quantity) || 1);
+                const confirmed = confirm(qty > 1 && artifactDef.type === 'crafting'
+                    ? `Donate 1x ${artifactDef.name} to your guild? (You have x${qty})\n\nThis will make it available to all guild members!`
+                    : `Donate ${artifactDef.name} to your guild?\n\nThis will make it available to all guild members!`);
                 if (!confirmed) return;
                 
                 // Initialize guild inventory if it doesn't exist
@@ -27274,15 +27618,23 @@ const SHIP_IMAGE_DATA = {
                     this.guildName = 'Galactic Pioneers';
                 }
                 
-                // Remove from personal inventory
-                this.inventory = this.inventory.filter(i => i.id != itemId);
+                // Remove one unit from personal inventory
+                const donated = this.consumeInventoryItemById(itemId, 1) || { ...item, quantity: 1 };
                 
-                // Add to guild inventory with donor information
-                this.guildInventory.push({
-                    ...item,
-                    donatedBy: this.currentPlayer?.username || 'Commander',
-                    donatedAt: Date.now()
-                });
+                // Add to guild inventory with donor information (guild materials also stack)
+                const existingGuild = this.guildInventory.find(g => g.artifactId === donated.artifactId && ARTIFACTS[donated.artifactId] && ARTIFACTS[donated.artifactId].type === 'crafting');
+                if (existingGuild) {
+                    existingGuild.quantity = Math.max(1, Number(existingGuild.quantity) || 1) + 1;
+                    existingGuild.donatedBy = this.currentPlayer?.username || 'Commander';
+                    existingGuild.donatedAt = Date.now();
+                } else {
+                    this.guildInventory.push({
+                        ...donated,
+                        quantity: 1,
+                        donatedBy: this.currentPlayer?.username || 'Commander',
+                        donatedAt: Date.now()
+                    });
+                }
                 
                 this.showNotification(`✅ Donated ${artifactDef.name} to ${this.guildName}!`);
                 
@@ -27393,7 +27745,10 @@ const SHIP_IMAGE_DATA = {
                     planetName: 'Guild Storage'
                 };
                 
-                this.inventory.push(newItem);
+                this.addInventoryItem({
+                    ...newItem,
+                    quantity: Math.max(1, Number(newItem.quantity) || 1)
+                });
                 
                 this.showNotification(`📦 Took ${artifactDef.name} from guild inventory!`);
                 
@@ -32935,7 +33290,13 @@ window.tutorialManager = (() => {
         // ── Inventory helpers ───────────────────────────────────────────
         function getMatCount(artifactId) {
             if (!window.game) return 0;
-            return window.game.inventory.filter(i => i.artifactId === artifactId).length;
+            if (typeof window.game.getInventoryCount === 'function') {
+                return window.game.getInventoryCount(artifactId);
+            }
+            return window.game.inventory.reduce((sum, i) => {
+                if (i.artifactId !== artifactId) return sum;
+                return sum + Math.max(1, Number(i.quantity) || 1);
+            }, 0);
         }
 
         function canCraft(recipe) {
@@ -32951,6 +33312,10 @@ window.tutorialManager = (() => {
 
         function consumeIngredients(recipe) {
             for (const ing of recipe.ingredients) {
+                if (typeof window.game.removeInventoryQuantity === 'function') {
+                    window.game.removeInventoryQuantity(ing.artifactId, ing.qty);
+                    continue;
+                }
                 let removed = 0;
                 window.game.inventory = window.game.inventory.filter(i => {
                     if (i.artifactId === ing.artifactId && removed < ing.qty) {
@@ -33004,12 +33369,22 @@ window.tutorialManager = (() => {
             } else if (r.type === 'grantItem') {
                 // Grant an artifact item directly into inventory
                 if (window.game && r.artifactId && ARTIFACTS[r.artifactId]) {
-                    window.game.inventory.push({
-                        id: Date.now().toString() + Math.random().toString(36).slice(2),
-                        artifactId: r.artifactId,
-                        foundAt: Date.now(),
-                        source: 'crafting'
-                    });
+                    if (typeof window.game.addInventoryItem === 'function') {
+                        window.game.addInventoryItem({
+                            artifactId: r.artifactId,
+                            foundAt: new Date().toISOString(),
+                            source: 'crafting',
+                            quantity: 1
+                        });
+                    } else {
+                        window.game.inventory.push({
+                            id: Date.now().toString() + Math.random().toString(36).slice(2),
+                            artifactId: r.artifactId,
+                            foundAt: Date.now(),
+                            source: 'crafting',
+                            quantity: 1
+                        });
+                    }
                     window.game.renderInventory && window.game.renderInventory();
                     window.game.saveGameState && window.game.saveGameState();
                     window.game.showNotification(`🌀 Crafted: ${ARTIFACTS[r.artifactId].icon} ${ARTIFACTS[r.artifactId].name}! Check your inventory.`);
@@ -33130,12 +33505,26 @@ window.tutorialManager = (() => {
 
         // ── Craft action ────────────────────────────────────────────────
         function craft(recipeId) {
-            const recipe = CRAFTING_RECIPES[recipeId];
-            if (!recipe || !window.game) return;
+            let recipe = CRAFTING_RECIPES[recipeId];
+            // Fallback when recipe.id was missing and the button called craft('undefined')
+            if (!recipe) {
+                recipe = Object.values(CRAFTING_RECIPES).find(r => r && (r.id === recipeId || r.name === recipeId));
+            }
+            if (!recipe || !window.game) {
+                if (window.game) window.game.showNotification('⚠️ Unknown craft recipe.');
+                return;
+            }
+            recipeId = recipe.id || Object.keys(CRAFTING_RECIPES).find(k => CRAFTING_RECIPES[k] === recipe) || recipeId;
 
-            // Already crafted (non-repeatable)?
+            // Ultimate weapon / one-time recipes (Resonance Cannon)
             if (!recipe.repeatable && craftedRecipes[recipeId]) {
-                window.game.showNotification('⚠️ Already crafted — this recipe can only be made once.');
+                window.game.showNotification('⚠️ Already crafted — The Resonance Cannon can only be made once.');
+                return;
+            }
+            // Ship schematics: unlock once; then build copies from Ship Production
+            if (recipe.result && recipe.result.type === 'unlockShip' && recipe.result.shipType &&
+                window.game.unlockedShips && window.game.unlockedShips.includes(recipe.result.shipType)) {
+                window.game.showNotification('⚠️ Ship already unlocked — build more copies from Ship Production.');
                 return;
             }
             // Already in queue?
@@ -33215,17 +33604,19 @@ window.tutorialManager = (() => {
                     onclick="window.craftingManager.setCategory('${c.id}')">${c.label}</button>
             `).join('');
 
-            // Filter recipes
-            const recipes = Object.values(CRAFTING_RECIPES).filter(r => currentCategory === 'all' || r.category === currentCategory);
+            // Filter recipes (keep object keys so missing recipe.id still crafts correctly)
+            const recipes = Object.entries(CRAFTING_RECIPES)
+                .filter(([, r]) => currentCategory === 'all' || r.category === currentCategory);
 
             if (recipes.length === 0) {
                 grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:60px;color:var(--text-secondary);">No recipes in this category.</div>';
                 return;
             }
 
-            grid.innerHTML = recipes.map(recipe => {
-                const alreadyCrafted = !recipe.repeatable && craftedRecipes[recipe.id];
-                const inQueue        = craftingQueue.find(q => q.recipeId === recipe.id);
+            grid.innerHTML = recipes.map(([recipeKey, recipe]) => {
+                const rid = recipe.id || recipeKey;
+                const alreadyCrafted = !recipe.repeatable && craftedRecipes[rid];
+                const inQueue        = craftingQueue.find(q => q.recipeId === rid);
                 const craftable      = canCraft(recipe);
                 const isLegendary    = recipe.category === 'legendary';
 
@@ -33258,7 +33649,7 @@ window.tutorialManager = (() => {
                     const pct     = Math.min(100, (elapsed / inQueue.duration) * 100).toFixed(0);
                     btn = `<button class="crafting-btn crafting-btn-active" disabled>⚙️ Crafting... ${pct}%</button>`;
                 } else if (craftable) {
-                    btn = `<button class="crafting-btn ready" onclick="window.craftingManager.craft('${recipe.id}')">⚗️ Craft Now</button>`;
+                    btn = `<button class="crafting-btn ready" onclick="window.craftingManager.craft('${rid}')">⚗️ Craft Now</button>`;
                 } else {
                     btn = `<button class="crafting-btn locked-btn" disabled>🔒 Need Materials</button>`;
                 }
