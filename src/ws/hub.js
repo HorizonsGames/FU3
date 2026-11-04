@@ -12,8 +12,11 @@ const { handleMessage, handleClose } = require('./battleRoom');
 // before scaling dynos horizontally.
 const rooms = new Map(); // roomId -> Set<connection>
 
+let wssRef = null;
+
 function createHub(server) {
     const wss = new WebSocketServer({ noServer: true });
+    wssRef = wss;
 
     server.on('upgrade', async (req, socket, head) => {
         const { pathname, query } = url.parse(req.url, true);
@@ -95,8 +98,17 @@ function broadcastToRoom(roomId, message, { excludeWs } = {}) {
     }
 }
 
+/** Broadcast to every connected authenticated WebSocket (galaxy-wide events). */
+function broadcastGalaxy(message) {
+    if (!wssRef) return;
+    const payload = JSON.stringify(message);
+    wssRef.clients.forEach((ws) => {
+        if (ws.readyState === ws.OPEN) ws.send(payload);
+    });
+}
+
 function send(ws, message) {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }
 
-module.exports = { createHub, rooms };
+module.exports = { createHub, rooms, broadcastGalaxy };

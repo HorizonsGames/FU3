@@ -10,8 +10,21 @@ const router = express.Router();
 // new data model.
 const MAX_STATE_BYTES = 2 * 1024 * 1024; // 2MB safety cap per player
 
+function extractHorizonCoins(state, fallback) {
+    const fromState = state && state.horizonCoins != null ? Number(state.horizonCoins) : NaN;
+    if (Number.isFinite(fromState)) return Math.max(0, Math.floor(fromState));
+    const fb = Number(fallback);
+    return Number.isFinite(fb) ? Math.max(0, Math.floor(fb)) : 500;
+}
+
 router.get('/state', auth.requireAuth, (req, res) => {
-    res.json({ state: req.player.state || {} });
+    const state = (req.player.state && typeof req.player.state === 'object')
+        ? { ...req.player.state }
+        : {};
+    // Column is source of truth after wipes; always surface it on the blob for the client
+    const hc = extractHorizonCoins(state, req.player.horizon_coins);
+    state.horizonCoins = hc;
+    res.json({ state, horizonCoins: hc });
 });
 
 router.put('/state', auth.requireAuth, async (req, res) => {
@@ -24,8 +37,14 @@ router.put('/state', auth.requireAuth, async (req, res) => {
         return res.status(413).json({ error: 'Save data is too large.' });
     }
 
-    await db.query('UPDATE players SET state = $1 WHERE id = $2', [state, req.player.id]);
-    res.json({ success: true, savedAt: new Date().toISOString() });
+    const hc = extractHorizonCoins(state, req.player.horizon_coins);
+    const nextState = { ...state, horizonCoins: hc };
+
+    await db.query(
+        'UPDATE players SET state = $1, horizon_coins = $2 WHERE id = $3',
+        [nextState, hc, req.player.id]
+    );
+    res.json({ success: true, savedAt: new Date().toISOString(), horizonCoins: hc });
 });
 
 module.exports = router;

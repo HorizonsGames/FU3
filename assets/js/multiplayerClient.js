@@ -32,7 +32,16 @@ class MPClient {
         this.player = null;
         this.ws = null;
         this.currentRoom = null;
-        this._listeners = { ship_state: [], battle_event: [], chat: [], member_joined: [], member_left: [], room_joined: [] };
+        this._listeners = {
+            ship_state: [],
+            battle_event: [],
+            chat: [],
+            member_joined: [],
+            member_left: [],
+            room_joined: [],
+            galaxy_announce: [],
+            galaxy_wipe: [],
+        };
     }
 
     // ── REST: accounts ──────────────────────────────────────────────────
@@ -65,7 +74,7 @@ class MPClient {
     _setSession(res) {
         this.token = res.token;
         this.player = res.player;
-        localStorage.setItem('fu_mp_token', res.token);
+        localStorage.setItem('fu_mp_token', this.token);
     }
 
     // ── REST: persistent state (replaces localStorage save/load) ───────
@@ -74,7 +83,7 @@ class MPClient {
     }
 
     async loadState() {
-        return this._get('/api/state'); // -> { state }
+        return this._get('/api/state'); // -> { state, horizonCoins }
     }
 
     // ── REST: guilds ─────────────────────────────────────────────────
@@ -91,7 +100,6 @@ class MPClient {
     }
 
     // ── REST: boss instances ────────────────────────────────────────
-    // guildId omitted = world boss; set = that guild's boss.
     async createBoss(bossName, maxHp, guildId) {
         return (await this._post('/api/bosses', { bossName, maxHp, guildId })).boss;
     }
@@ -107,6 +115,35 @@ class MPClient {
 
     async damageBoss(bossId, amount) {
         return this._post(`/api/bosses/${bossId}/damage`, { amount });
+    }
+
+    // ── REST: Ultimate Weapon (galaxy wipe) ───────────────────────────
+    async startUltimateCraft({ empireName, baselinePlanets, baselineFleet } = {}) {
+        return this._post('/api/ultimate/start', { empireName, baselinePlanets, baselineFleet });
+    }
+
+    async listUltimateCrafts() {
+        return this._get('/api/ultimate/active'); // -> { crafts }
+    }
+
+    async reportUltimateCraft(craftId, { currentPlanets, currentFleet } = {}) {
+        return this._post(`/api/ultimate/${encodeURIComponent(craftId)}/report`, {
+            currentPlanets, currentFleet,
+        });
+    }
+
+    async assaultUltimateCraft(craftId, { fleetDamage, planetDamage } = {}) {
+        return this._post(`/api/ultimate/${encodeURIComponent(craftId)}/assault`, {
+            fleetDamage, planetDamage,
+        });
+    }
+
+    async completeUltimateCraft(craftId) {
+        return this._post(`/api/ultimate/${encodeURIComponent(craftId)}/complete`, {});
+    }
+
+    async fireUltimateWeapon(craftId) {
+        return this._post(`/api/ultimate/${encodeURIComponent(craftId)}/fire`, {});
     }
 
     // ── WebSocket: live battle rooms ─────────────────────────────────
@@ -129,7 +166,6 @@ class MPClient {
         this.currentRoom = null;
     }
 
-    // roomType: 'pvp' or 'boss'. Convention: 'pvp:<matchId>' or 'boss:<bossInstanceId>'.
     joinRoom(roomId, roomType) {
         this.currentRoom = roomId;
         this._send({ type: 'join_room', roomId, roomType });
@@ -141,15 +177,11 @@ class MPClient {
         this.currentRoom = null;
     }
 
-    // Call this every animation tick with your fleet's current positions/hp —
-    // it gets relayed to everyone else in the room so they can render it live.
     sendShipState(payload) {
         if (!this.currentRoom) return;
         this._send({ type: 'ship_state', roomId: this.currentRoom, payload });
     }
 
-    // For discrete moments (a ship destroyed, victory/defeat) rather than
-    // continuous position updates — keeps ship_state traffic lightweight.
     sendBattleEvent(payload) {
         if (!this.currentRoom) return;
         this._send({ type: 'battle_event', roomId: this.currentRoom, payload });
@@ -165,7 +197,9 @@ class MPClient {
     onChat(cb) { this._listeners.chat.push(cb); }
     onMemberJoined(cb) { this._listeners.member_joined.push(cb); }
     onMemberLeft(cb) { this._listeners.member_left.push(cb); }
-    onRoomJoined(cb) { this._listeners.room_joined.push(cb); } // (roomId, members)
+    onRoomJoined(cb) { this._listeners.room_joined.push(cb); }
+    onGalaxyAnnounce(cb) { this._listeners.galaxy_announce.push(cb); }
+    onGalaxyWipe(cb) { this._listeners.galaxy_wipe.push(cb); }
 
     _dispatch(msg) {
         if (msg.type === 'error') { console.warn('[MPClient] server error:', msg.message); return; }
@@ -181,6 +215,10 @@ class MPClient {
             this._listeners.member_left.forEach((cb) => cb(msg.playerId));
             return;
         }
+        if (msg.type === 'galaxy_announce' || msg.type === 'galaxy_wipe') {
+            (this._listeners[msg.type] || []).forEach((cb) => cb(msg));
+            return;
+        }
         if (this._listeners[msg.type]) {
             this._listeners[msg.type].forEach((cb) => cb(msg.playerId, msg.username, msg.payload));
         }
@@ -190,7 +228,6 @@ class MPClient {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(obj));
     }
 
-    // ── internal fetch helpers ──────────────────────────────────────
     async _get(path) { return this._fetch(path, 'GET'); }
     async _post(path, body) { return this._fetch(path, 'POST', body); }
     async _put(path, body) { return this._fetch(path, 'PUT', body); }

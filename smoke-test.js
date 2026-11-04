@@ -33,7 +33,10 @@ const authRoutes = require('./src/routes/auth');
 const stateRoutes = require('./src/routes/state');
 const guildRoutes = require('./src/routes/guild');
 const bossRoutes = require('./src/routes/boss');
-const { createHub } = require('./src/ws/hub');
+const ultimate = require('./src/routes/ultimate');
+const { createHub, broadcastGalaxy } = require('./src/ws/hub');
+
+process.env.ULTIMATE_CRAFT_MS = '50'; // short forge for smoke tests
 
 let pass = 0, fail = 0;
 function check(label, cond) {
@@ -48,8 +51,10 @@ async function main() {
     app.use('/api', stateRoutes);
     app.use('/api', guildRoutes);
     app.use('/api', bossRoutes);
+    app.use('/api', ultimate.router);
     const server = http.createServer(app);
     createHub(server);
+    ultimate.setBroadcastGalaxy(broadcastGalaxy);
 
     await db.initSchema();
     await new Promise((resolve) => server.listen(0, resolve));
@@ -109,8 +114,8 @@ async function main() {
     }).then(r => r.json());
     check('promoted account reports accountType admin via API', meAfterPromote.player?.accountType === 'admin');
 
-    // ── state save/load ──
-    const saveState = { fleets: { home: { 'Wolf Cruiser': 5 } }, resources: { metal: 12345 } };
+    // ── state save/load (+ horizon coins column sync) ──
+    const saveState = { fleets: { home: { 'Wolf Cruiser': 5 } }, resources: { metal: 12345 }, horizonCoins: 777 };
     const putState = await fetch(`${base}/api/state`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
         body: JSON.stringify({ state: saveState }),
@@ -121,6 +126,7 @@ async function main() {
         headers: { Authorization: `Bearer ${login1.token}` },
     }).then(r => r.json());
     check('state round-trips correctly', getState.state?.resources?.metal === 12345);
+    check('horizon coins surfaced from state save', getState.horizonCoins === 777 || getState.state?.horizonCoins === 777);
 
     // ── guilds ──
     const guild = await fetch(`${base}/api/guilds`, {
@@ -239,6 +245,88 @@ async function main() {
         setTimeout(() => reject(new Error('WS test timed out after 5s')), 5000);
     });
 
+    // ── Ultimate Weapon: start, announce, assault-disable, fire-wipe ──
+    let sawStartAnnounce = false;
+    const wsThreat = new WebSocket(`ws://localhost:${port}/ws?token=${login2Token(reg2)}`);
+    await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('ultimate WS announce timeout')), 5000);
+        wsThreat.on('error', reject);
+        wsThreat.on('open', () => { clearTimeout(timer); resolve(); });
+    });
+    wsThreat.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'galaxy_announce' && msg.kind === 'start') sawStartAnnounce = true;
+    });
+
+    const startUw = await fetch(`${base}/api/ultimate/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ empireName: 'Terran Empire', baselinePlanets: 10, baselineFleet: 100 }),
+    }).then(async (r) => ({ status: r.status, body: await r.json() }));
+    check('ultimate craft starts (200)', startUw.status === 200);
+    check('ultimate craft id returned', !!startUw.body.craft?.id);
+    await new Promise((r) => setTimeout(r, 100));
+    check('bob received galaxy_announce start', sawStartAnnounce);
+
+    const activeUw = await fetch(`${base}/api/ultimate/active`, {
+        headers: { Authorization: `Bearer ${login2Token(reg2)}` },
+    }).then(r => r.json());
+    check('active ultimate threats lists alice craft', activeUw.crafts?.some(c => c.username === 'alice'));
+
+    const craftId = startUw.body.craft.id;
+    const assault = await fetch(`${base}/api/ultimate/${craftId}/assault`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login2Token(reg2)}` },
+        body: JSON.stringify({ fleetDamage: 60, planetDamage: 6 }), // >51% of 100/10
+    }).then(r => r.json());
+    check('assault can disable ultimate craft', assault.disabled === true && assault.craft?.status === 'disabled');
+
+    // Fresh craft for fire/wipe path
+    const startUw2 = await fetch(`${base}/api/ultimate/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ empireName: 'Terran Empire', baselinePlanets: 4, baselineFleet: 40 }),
+    }).then(r => r.json());
+    check('alice can start a new craft after prior disable', !!startUw2.craft?.id);
+    const craftId2 = startUw2.craft.id;
+    await new Promise((r) => setTimeout(r, 80)); // wait for ULTIMATE_CRAFT_MS=50
+    const complete = await fetch(`${base}/api/ultimate/${craftId2}/complete`, {
+        method: 'POST', headers: { Authorization: `Bearer ${login1.token}` },
+    }).then(async (r) => ({ status: r.status, body: await r.json() }));
+    check('complete arms ultimate weapon after timer', complete.status === 200 && complete.body.craft?.status === 'armed');
+
+    // Bob keeps HC via state
+    await fetch(`${base}/api/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login2Token(reg2)}` },
+        body: JSON.stringify({ state: { horizonCoins: 4242, resources: { metal: 9 } } }),
+    });
+
+    let sawWipe = false;
+    wsThreat.on('message', (raw) => {
+        const msg = JSON.parse(raw.toString());
+        if (msg.type === 'galaxy_wipe') sawWipe = true;
+    });
+
+    const fire = await fetch(`${base}/api/ultimate/${craftId2}/fire`, {
+        method: 'POST', headers: { Authorization: `Bearer ${login1.token}` },
+    }).then(async (r) => ({ status: r.status, body: await r.json() }));
+    check('fire ultimate succeeds', fire.status === 200);
+    await new Promise((r) => setTimeout(r, 100));
+    check('bob received galaxy_wipe', sawWipe);
+
+    const bobAfter = await fetch(`${base}/api/state`, {
+        headers: { Authorization: `Bearer ${login2Token(reg2)}` },
+    }).then(r => r.json());
+    check('wipe clears empire state blob', !bobAfter.state?.resources?.metal);
+    check('wipe preserves horizon coins', bobAfter.horizonCoins === 4242 || bobAfter.state?.horizonCoins === 4242);
+
+    const aliceAfter = await fetch(`${base}/api/state`, {
+        headers: { Authorization: `Bearer ${login1.token}` },
+    }).then(r => r.json());
+    check('alice HC still preserved after wipe', aliceAfter.horizonCoins === 777 || aliceAfter.state?.horizonCoins === 777);
+
+    wsThreat.close();
     server.close();
     console.log(`\n${pass} passed, ${fail} failed`);
     process.exit(fail ? 1 : 0);
