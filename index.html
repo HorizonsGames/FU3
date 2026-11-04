@@ -10535,6 +10535,10 @@
                     if (game.techBonuses && game.techBonuses.planetDefense) {
                         arrivalDefense *= (1 + game.techBonuses.planetDefense / 100);
                     }
+                    if (typeof game.hasRaceTech === 'function') {
+                        if (game.hasRaceTech('garrison_doctrine')) arrivalDefense *= 1.25;
+                        if (game.hasRaceTech('harmonic_defense')) arrivalDefense *= 1.20;
+                    }
                     let arrivalDefendPower = 0;
                     if (game.fleets) {
                         game.fleets.forEach(fleet => {
@@ -10555,7 +10559,13 @@
                         });
                     }
                     arrivalDefense += arrivalDefendPower;
-                    const attackSuccess = attackPower > arrivalDefense;
+                    let effectiveRaidPower = attackPower;
+                    if (typeof game.hasRaceTech === 'function') {
+                        if (game.hasRaceTech('scrap_shields')) effectiveRaidPower *= 0.90;
+                        if (game.hasRaceTech('spore_cloud')) effectiveRaidPower *= 0.90;
+                        if (game.hasRaceTech('infectious_range')) effectiveRaidPower *= 0.92;
+                    }
+                    const attackSuccess = effectiveRaidPower > arrivalDefense;
                     defense = arrivalDefense;
 
                 // Announce the attack result in chat
@@ -10581,7 +10591,8 @@
                     bot.stats.battlesWon++;
 
                     // Steal resources from planet (30–60% of planet's stockpile, capped)
-                    const stealFraction = 0.3 + Math.random() * 0.3;
+                    let stealFraction = 0.3 + Math.random() * 0.3;
+                    if (typeof game.hasRaceTech === 'function' && game.hasRaceTech('pax_terrana')) stealFraction *= 0.85;
                     const stolenCredits  = Math.floor((game.resources.credits  / Math.max(playerPlanets.length, 1)) * stealFraction);
                     const stolenMetal    = Math.floor((game.resources.metal    / Math.max(playerPlanets.length, 1)) * stealFraction);
                     const stolenHe3      = Math.floor((game.resources.he3     / Math.max(playerPlanets.length, 1)) * stealFraction);
@@ -14926,15 +14937,19 @@ const SHIP_IMAGE_DATA = {
                 const baseCost = 1000;
                 const baseHE3 = 200;
                 const planetCount = this.planets.length;
-                const perCredits = Math.floor((baseCost + (planetCount * 100)) * 0.6);
-                const perHE3 = baseHE3 + (planetCount * 20);
+                let perCredits = Math.floor((baseCost + (planetCount * 100)) * 0.6);
+                let perHE3 = baseHE3 + (planetCount * 20);
+                let scoutingTime = Math.min(15, Math.floor(5 + (planetCount * 0.5)) + Math.max(0, Math.max(1, Math.floor(missionCount || 1)) - 1) * 2);
+                if (this.hasRaceTech('survey_bureau')) { perCredits = Math.floor(perCredits * 0.70); perHE3 = Math.floor(perHE3 * 0.70); }
+                if (this.hasRaceTech('mind_link_scouts')) { perCredits = Math.floor(perCredits * 0.75); perHE3 = Math.floor(perHE3 * 0.75); scoutingTime = Math.max(1, Math.floor(scoutingTime * 0.75)); }
+                if (this.hasRaceTech('ghost_scouts')) scoutingTime = Math.max(1, Math.floor(scoutingTime * 0.60));
                 const n = Math.max(1, Math.floor(missionCount || 1));
                 return {
                     perCredits,
                     perHE3,
                     credits: perCredits * n,
                     he3: perHE3 * n,
-                    scoutingTime: Math.min(15, Math.floor(5 + (planetCount * 0.5)) + Math.max(0, n - 1) * 2)
+                    scoutingTime
                 };
             }
 
@@ -16056,8 +16071,14 @@ const SHIP_IMAGE_DATA = {
                     const c = this.getPlanetConstellation(target);
                     return c && c.id === _stormConst;
                 })();
-                const travelTime = Math.max(30, _inStorm ? baseTravelTime * 2 : baseTravelTime);
-                const he3Cost = Math.floor((200 + (planetCount * 20)) * 5); // x5 HE3 cost
+                const ignoreStorm = this.hasRaceTech('voidwalk');
+                let travelTime = Math.max(30, (_inStorm && !ignoreStorm) ? baseTravelTime * 2 : baseTravelTime);
+                let he3Cost = Math.floor((200 + (planetCount * 20)) * 5); // x5 HE3 cost
+                if (this.hasRaceTech('rapid_response')) travelTime = Math.max(30, Math.floor(travelTime * 0.75));
+                if (this.hasRaceTech('raider_engines')) travelTime = Math.max(30, Math.floor(travelTime * 0.70));
+                if (this.hasRaceTech('voidwalk')) travelTime = Math.max(30, Math.floor(travelTime * 0.80));
+                if (this.hasRaceTech('ashen_march')) he3Cost = Math.floor(he3Cost * 0.70);
+                if (this.hasRaceTech('fuel_siphon')) he3Cost = Math.floor(he3Cost * 0.75);
                 
                 if (this.resources.he3 < he3Cost) {
                     this.showNotification(`⚠️ Need ⚡${he3Cost} HE3 to travel to ${target.name}!`);
@@ -16255,6 +16276,7 @@ const SHIP_IMAGE_DATA = {
                 
                 // Deduct HE3
                 this.resources.he3 -= he3Cost;
+                this._lastAttackHe3Cost = he3Cost;
                 this.updateResources();
                 
                 // Close modal
@@ -16878,6 +16900,126 @@ const SHIP_IMAGE_DATA = {
                             cost: { credits: 350000, metal: 80000, researchPoints: 200 },
                             apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.manifestDestiny = true; }
                         },
+                        {
+                            id: 'frontier_charter',
+                            name: 'Frontier Charter', icon: '📜',
+                            effect: 'Colonize cost −25% credits and HE3',
+                            lore: `Imperial land grants subsidize every new world. Settlers pay less — the Empire pays in ambition.`,
+                            cost: { credits: 200000, metal: 60000, researchPoints: 160 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.frontierCharter = true; }
+                        },
+                        {
+                            id: 'orbital_logistics',
+                            name: 'Orbital Logistics', icon: '🛰️',
+                            effect: 'Ship build metal and credit cost −15%',
+                            lore: `Standardized orbital yards and supply chains shave waste from every keel laid.`,
+                            cost: { credits: 280000, metal: 100000, researchPoints: 200 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.orbitalLogistics = true; }
+                        },
+                        {
+                            id: 'civic_works',
+                            name: 'Civic Works', icon: '🏛️',
+                            effect: 'Building metal and credit cost −20%',
+                            lore: `Public works corps pour prefab foundations on every colony overnight.`,
+                            cost: { credits: 250000, metal: 90000, researchPoints: 180 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.civicWorks = true; }
+                        },
+                        {
+                            id: 'supply_corps',
+                            name: 'Supply Corps', icon: '📦',
+                            effect: 'Food upkeep −30%',
+                            lore: `Ration algorithms and cold-chain freighters keep every citizen fed with less waste.`,
+                            cost: { credits: 220000, metal: 50000, researchPoints: 170 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.supplyCorps = true; }
+                        },
+                        {
+                            id: 'treasury_protocols',
+                            name: 'Treasury Protocols', icon: '💰',
+                            effect: 'Credit production +35%',
+                            lore: `Digital minting and colonial tax grids flood the Imperial coffers.`,
+                            cost: { credits: 400000, metal: 80000, researchPoints: 260 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.treasuryProtocols = true; }
+                        },
+                        {
+                            id: 'homestead_act',
+                            name: 'Homestead Act', icon: '🏡',
+                            effect: 'Population growth +25%',
+                            lore: `Free land titles draw settlers by the million. Empires are built on birthrates.`,
+                            cost: { credits: 320000, metal: 70000, researchPoints: 210 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.homesteadAct = true; }
+                        },
+                        {
+                            id: 'garrison_doctrine',
+                            name: 'Garrison Doctrine', icon: '🏰',
+                            effect: 'Planet defense +25% when defending',
+                            lore: `Every colony trains a standing garrison. Walls mean nothing without will.`,
+                            cost: { credits: 450000, metal: 150000, researchPoints: 280 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.garrisonDoctrine = true; }
+                        },
+                        {
+                            id: 'rapid_response',
+                            name: 'Rapid Response', icon: '⚡',
+                            effect: 'Attack and siege travel time −25%',
+                            lore: `Relay beacons and courier lanes cut fleet transit across Imperial space.`,
+                            cost: { credits: 380000, metal: 110000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.rapidResponse = true; }
+                        },
+                        {
+                            id: 'survey_bureau',
+                            name: 'Survey Bureau', icon: '📡',
+                            effect: 'Scout credit and HE3 cost −30%',
+                            lore: `Cartographers share star charts. Discovery is a public good of the Empire.`,
+                            cost: { credits: 180000, metal: 40000, researchPoints: 150 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.surveyBureau = true; }
+                        },
+                        {
+                            id: 'fleet_academy',
+                            name: 'Fleet Academy', icon: '🎓',
+                            effect: 'Ship build time −20%',
+                            lore: `Academy-trained crews commission vessels faster than any civilian yard.`,
+                            cost: { credits: 360000, metal: 120000, researchPoints: 230 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.fleetAcademy = true; }
+                        },
+                        {
+                            id: 'trade_federation',
+                            name: 'Trade Federation', icon: '🤝',
+                            effect: 'Fleet maintenance cost −25%',
+                            lore: `Merchant houses subsidize naval upkeep in exchange for protected lanes.`,
+                            cost: { credits: 420000, metal: 90000, researchPoints: 250 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.tradeFederation = true; }
+                        },
+                        {
+                            id: 'forward_operating_bases',
+                            name: 'Forward Operating Bases', icon: '🪖',
+                            effect: 'Sensor radius +20%',
+                            lore: `Listening posts bloom on every frontier moon. Nothing approaches unseen.`,
+                            cost: { credits: 340000, metal: 100000, researchPoints: 220 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.forwardOperatingBases = true; }
+                        },
+                        {
+                            id: 'war_bonds',
+                            name: 'War Bonds', icon: '📊',
+                            effect: 'On successful attack: refund 10% of spent attack HE3 as credits',
+                            lore: `Citizens fund the wars. Victories pay dividends straight into the treasury.`,
+                            cost: { credits: 500000, metal: 100000, researchPoints: 300 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.warBonds = true; }
+                        },
+                        {
+                            id: 'imperial_edict',
+                            name: 'Imperial Edict', icon: '⚖️',
+                            effect: 'Siege duration vs enemies −20%',
+                            lore: `An Imperial decree accelerates every blockade. Resistance is paperwork.`,
+                            cost: { credits: 550000, metal: 140000, researchPoints: 320 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.imperialEdict = true; }
+                        },
+                        {
+                            id: 'pax_terrana',
+                            name: 'Pax Terrana', icon: '🕊️',
+                            effect: 'When defending against raids, resource losses −15%',
+                            lore: `Peace through strength. When the Empire is struck, it bleeds less — and remembers more.`,
+                            cost: { credits: 900000, metal: 220000, researchPoints: 450 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.paxTerrana = true; }
+                        },
                     ],
                     "Kor'ai Dynasty": [
                         {
@@ -16903,6 +17045,126 @@ const SHIP_IMAGE_DATA = {
                             lore: `The Kor'ai strike with overwhelming force in the opening seconds of every engagement. Prey rarely survives first contact.`,
                             cost: { credits: 600000, metal: 200000, researchPoints: 350 },
                             apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.apexPredator = true; }
+                        },
+                        {
+                            id: 'deep_core_assays',
+                            name: 'Deep Core Assays', icon: '🪨',
+                            effect: 'Metal production +30% on all planet types',
+                            lore: `Assay drones map every vein. No ore escapes the Dynasty's claim.`,
+                            cost: { credits: 280000, metal: 120000, researchPoints: 200 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.deepCoreAssays = true; }
+                        },
+                        {
+                            id: 'he3_siphon',
+                            name: 'HE3 Siphon', icon: '⛽',
+                            effect: 'HE3 production +40%',
+                            lore: `Siphon lattices drink stellar winds dry. Fuel is prey.`,
+                            cost: { credits: 320000, metal: 100000, researchPoints: 220 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.he3Siphon = true; }
+                        },
+                        {
+                            id: 'ore_caravans',
+                            name: 'Ore Caravans', icon: '🐪',
+                            effect: 'Credit production +25%',
+                            lore: `Clan caravans move ore to market before rivals know a strike was made.`,
+                            cost: { credits: 260000, metal: 80000, researchPoints: 190 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.oreCaravans = true; }
+                        },
+                        {
+                            id: 'blast_tunnels',
+                            name: 'Blast Tunnels', icon: '💥',
+                            effect: 'Building metal cost −15%',
+                            lore: `Explosive boring cuts foundation costs in half the stone.`,
+                            cost: { credits: 240000, metal: 90000, researchPoints: 180 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.blastTunnels = true; }
+                        },
+                        {
+                            id: 'pack_hunting',
+                            name: 'Pack Hunting', icon: '🐺',
+                            effect: 'Attack power +15%',
+                            lore: `Kor'ai packs coordinate kills with instinctive precision.`,
+                            cost: { credits: 420000, metal: 140000, researchPoints: 270 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.packHunting = true; }
+                        },
+                        {
+                            id: 'blood_tithe',
+                            name: 'Blood Tithe', icon: '🩸',
+                            effect: 'On attack win: steal 8% of defender metal',
+                            lore: `Victory demands tribute. The Dynasty takes its share in steel.`,
+                            cost: { credits: 480000, metal: 110000, researchPoints: 290 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.bloodTithe = true; }
+                        },
+                        {
+                            id: 'skinhunter_optics',
+                            name: 'Skinhunter Optics', icon: '👁️',
+                            effect: 'Sensor radius +25%',
+                            lore: `Predator eyes pierce nebulae. Prey glows like a wound in the dark.`,
+                            cost: { credits: 350000, metal: 90000, researchPoints: 230 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.skinhunterOptics = true; }
+                        },
+                        {
+                            id: 'clan_forges',
+                            name: 'Clan Forges', icon: '🔥',
+                            effect: 'Ship build time −25%',
+                            lore: `Forge-clans hammer hulls day and night. Speed is a clan virtue.`,
+                            cost: { credits: 380000, metal: 160000, researchPoints: 250 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.clanForges = true; }
+                        },
+                        {
+                            id: 'ashen_march',
+                            name: 'Ashen March', icon: '🌋',
+                            effect: 'Attack and siege travel HE3 cost −30%',
+                            lore: `Ash-wind engines burn lean. The hunt never stalls for fuel.`,
+                            cost: { credits: 360000, metal: 100000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.ashenMarch = true; }
+                        },
+                        {
+                            id: 'territorial_mark',
+                            name: 'Territorial Mark', icon: '🐾',
+                            effect: 'Constellation control production bonus +10% absolute',
+                            lore: `Scent-markers claim whole constellations. What is marked, thrives.`,
+                            cost: { credits: 520000, metal: 150000, researchPoints: 310 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.territorialMark = true; }
+                        },
+                        {
+                            id: 'nesting_grounds',
+                            name: 'Nesting Grounds', icon: '🪺',
+                            effect: 'Population growth +20%',
+                            lore: `Safe nesting worlds swell with clutch after clutch of young hunters.`,
+                            cost: { credits: 300000, metal: 70000, researchPoints: 200 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.nestingGrounds = true; }
+                        },
+                        {
+                            id: 'rift_drills',
+                            name: 'Rift Drills', icon: '🕳️',
+                            effect: 'Relic excavate time −30%',
+                            lore: `Rift drills tear ancient stone open. Secrets do not stay buried.`,
+                            cost: { credits: 340000, metal: 130000, researchPoints: 230 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.riftDrills = true; }
+                        },
+                        {
+                            id: 'sovereign_hoard',
+                            name: 'Sovereign Hoard', icon: '💎',
+                            effect: 'Fleet maintenance −20%',
+                            lore: `The Dynasty's vaults underwrite every warship. Upkeep is a solved problem.`,
+                            cost: { credits: 400000, metal: 90000, researchPoints: 250 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.sovereignHoard = true; }
+                        },
+                        {
+                            id: 'kill_scent',
+                            name: 'Kill Scent', icon: '👃',
+                            effect: 'First-strike damage +15% (stacks with Apex Predator)',
+                            lore: `The scent of fear sharpens every opening volley.`,
+                            cost: { credits: 650000, metal: 180000, researchPoints: 360 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.killScent = true; }
+                        },
+                        {
+                            id: 'dynasty_levy',
+                            name: 'Dynasty Levy', icon: '👑',
+                            effect: 'Siege needs only 40% of defense power (instead of 50%)',
+                            lore: `Levy fleets tip the orbital balance. Sieges begin sooner.`,
+                            cost: { credits: 950000, metal: 250000, researchPoints: 480 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.dynastyLevy = true; }
                         },
                     ],
                     'Reaper Collective': [
@@ -16930,6 +17192,126 @@ const SHIP_IMAGE_DATA = {
                             cost: { credits: 450000, metal: 80000, researchPoints: 270 },
                             apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.terrorDoctrine = true; }
                         },
+                        {
+                            id: 'scrapyard_economy',
+                            name: 'Scrapyard Economy', icon: '🔧',
+                            effect: 'Ship build metal cost −25%',
+                            lore: `Hulls are welded from wreckage. Virgin ore is for suckers.`,
+                            cost: { credits: 240000, metal: 80000, researchPoints: 180 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.scrapyardEconomy = true; }
+                        },
+                        {
+                            id: 'black_market',
+                            name: 'Black Market', icon: '🕶️',
+                            effect: 'Credit production +30%',
+                            lore: `Everything has a price in the Collective. Especially other people's cargo.`,
+                            cost: { credits: 300000, metal: 60000, researchPoints: 200 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.blackMarket = true; }
+                        },
+                        {
+                            id: 'raider_engines',
+                            name: 'Raider Engines', icon: '🚀',
+                            effect: 'Attack travel time −30%',
+                            lore: `Overclocked scavenged drives scream across the void. Stealth optional.`,
+                            cost: { credits: 360000, metal: 110000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.raiderEngines = true; }
+                        },
+                        {
+                            id: 'loot_protocols',
+                            name: 'Loot Protocols', icon: '💰',
+                            effect: 'On attack win: gain 12% of defender credits',
+                            lore: `Boarding teams hit vaults first. Always.`,
+                            cost: { credits: 420000, metal: 90000, researchPoints: 270 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.lootProtocols = true; }
+                        },
+                        {
+                            id: 'patched_hulls',
+                            name: 'Patched Hulls', icon: '🩹',
+                            effect: 'Combat loss rate −20% when attacking',
+                            lore: `Duct tape and faith hold ships together through hellfire.`,
+                            cost: { credits: 400000, metal: 140000, researchPoints: 260 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.patchedHulls = true; }
+                        },
+                        {
+                            id: 'scrap_shields',
+                            name: 'Scrap Shields', icon: '🛡️',
+                            effect: 'Incoming raid attack power vs you −10%',
+                            lore: `Layered junk plating absorbs hits that would kill a pristine hull.`,
+                            cost: { credits: 380000, metal: 130000, researchPoints: 250 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.scrapShields = true; }
+                        },
+                        {
+                            id: 'cannibal_yards',
+                            name: 'Cannibal Yards', icon: '🏭',
+                            effect: 'Ship build time −15% (stacks with Jury Rigging)',
+                            lore: `Yards strip unfinished hulls to finish others. Progress is cannibal.`,
+                            cost: { credits: 340000, metal: 100000, researchPoints: 220 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.cannibalYards = true; }
+                        },
+                        {
+                            id: 'ghost_scouts',
+                            name: 'Ghost Scouts', icon: '👻',
+                            effect: 'Scout time −40%',
+                            lore: `Silent skiffs slip through sensor nets. Charts arrive before alarms.`,
+                            cost: { credits: 220000, metal: 50000, researchPoints: 170 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.ghostScouts = true; }
+                        },
+                        {
+                            id: 'plunder_doctrine',
+                            name: 'Plunder Doctrine', icon: '🏴‍☠️',
+                            effect: 'On attack win: steal 10% of defender food',
+                            lore: `Take their food. Watch them starve. Then take the rest.`,
+                            cost: { credits: 440000, metal: 80000, researchPoints: 280 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.plunderDoctrine = true; }
+                        },
+                        {
+                            id: 'wreck_beacon',
+                            name: 'Wreck Beacon', icon: '📡',
+                            effect: '+5% ship capture chance on defeat (8% without Void Salvage)',
+                            lore: `Beacons call scavenger drones to every kill zone.`,
+                            cost: { credits: 500000, metal: 120000, researchPoints: 300 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.wreckBeacon = true; }
+                        },
+                        {
+                            id: 'fuel_siphon',
+                            name: 'Fuel Siphon', icon: '🛢️',
+                            effect: 'Attack and siege HE3 cost −25%',
+                            lore: `Siphon lines drink enemy tanks mid-transit. Fuel is free if you take it.`,
+                            cost: { credits: 330000, metal: 90000, researchPoints: 220 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.fuelSiphon = true; }
+                        },
+                        {
+                            id: 'fear_broadcast',
+                            name: 'Fear Broadcast', icon: '📢',
+                            effect: 'Siege duration −25% as attacker',
+                            lore: `Propaganda beams break morale. Planets surrender sooner.`,
+                            cost: { credits: 520000, metal: 110000, researchPoints: 310 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.fearBroadcast = true; }
+                        },
+                        {
+                            id: 'junk_armada',
+                            name: 'Junk Armada', icon: '🛳️',
+                            effect: 'Fleet maintenance −30%',
+                            lore: `Ships that cost nothing to build cost nothing to keep flying.`,
+                            cost: { credits: 400000, metal: 70000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.junkArmada = true; }
+                        },
+                        {
+                            id: 'strike_first_ask_never',
+                            name: 'Strike First, Ask Never', icon: '⚔️',
+                            effect: 'Attack power +20%',
+                            lore: `Diplomacy is for people who miss.`,
+                            cost: { credits: 600000, metal: 180000, researchPoints: 350 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.strikeFirstAskNever = true; }
+                        },
+                        {
+                            id: 'reclamation_rite',
+                            name: 'Reclamation Rite', icon: '🧲',
+                            effect: 'On battle defeat: recover 15% of lost fleet metal as metal',
+                            lore: `Even failure feeds the yards. Wreckage is a resource.`,
+                            cost: { credits: 850000, metal: 200000, researchPoints: 420 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.reclamationRite = true; }
+                        },
                     ],
                     'The Ascended': [
                         {
@@ -16956,6 +17338,126 @@ const SHIP_IMAGE_DATA = {
                             cost: { credits: 300000, metal: 40000, researchPoints: 180 },
                             apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.stellarCartography = true; }
                         },
+                        {
+                            id: 'neural_lattice',
+                            name: 'Neural Lattice', icon: '🕸️',
+                            effect: 'Research point generation +35% (stacks with Consciousness Expansion)',
+                            lore: `Minds braid into a lattice. Thought multiplies.`,
+                            cost: { credits: 380000, metal: 50000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.neuralLattice = true; }
+                        },
+                        {
+                            id: 'chronal_focus',
+                            name: 'Chronal Focus', icon: '⏳',
+                            effect: 'Global tech research +30% faster',
+                            lore: `Time dilates around Ascended laboratories. Decades compress into hours.`,
+                            cost: { credits: 450000, metal: 60000, researchPoints: 280 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.chronalFocus = true; }
+                        },
+                        {
+                            id: 'shipwright_trance',
+                            name: 'Shipwright Trance', icon: '🧘',
+                            effect: 'Ship research time −25%',
+                            lore: `Designers dream hulls into being. Blueprints arrive finished.`,
+                            cost: { credits: 360000, metal: 70000, researchPoints: 230 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.shipwrightTrance = true; }
+                        },
+                        {
+                            id: 'aegis_harmonics',
+                            name: 'Aegis Harmonics', icon: '💠',
+                            effect: 'Shield regen +1%/min extra (stacks with Phase Resonance)',
+                            lore: `Harmonic fields knit shields faster than weapons can tear them.`,
+                            cost: { credits: 420000, metal: 80000, researchPoints: 270 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.aegisHarmonics = true; }
+                        },
+                        {
+                            id: 'precog_array',
+                            name: 'Precog Array', icon: '🔮',
+                            effect: 'Sensor radius +30%',
+                            lore: `Foresight arrays see fleets before they leave dock.`,
+                            cost: { credits: 400000, metal: 70000, researchPoints: 260 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.precogArray = true; }
+                        },
+                        {
+                            id: 'mind_link_scouts',
+                            name: 'Mind-Link Scouts', icon: '🔗',
+                            effect: 'Scout cost −25% and scout time −25%',
+                            lore: `Scouts share eyes with the collective. Charting is instantaneous communion.`,
+                            cost: { credits: 280000, metal: 45000, researchPoints: 200 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.mindLinkScouts = true; }
+                        },
+                        {
+                            id: 'ethereal_hulls',
+                            name: 'Ethereal Hulls', icon: '✨',
+                            effect: 'Combat loss rate −15%',
+                            lore: `Matter phases around incoming fire. Casualties become improbabilities.`,
+                            cost: { credits: 520000, metal: 100000, researchPoints: 320 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.etherealHulls = true; }
+                        },
+                        {
+                            id: 'psionic_barrage',
+                            name: 'Psionic Barrage', icon: '🌀',
+                            effect: 'Attack power +18%',
+                            lore: `Will made weapon. Crews fire thoughts as munitions.`,
+                            cost: { credits: 580000, metal: 120000, researchPoints: 340 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.psionicBarrage = true; }
+                        },
+                        {
+                            id: 'voidwalk',
+                            name: 'Voidwalk', icon: '🌌',
+                            effect: 'Travel time −20%; ignore ion-storm travel penalty',
+                            lore: `Ascended fleets step between moments. Storms are scenery.`,
+                            cost: { credits: 500000, metal: 90000, researchPoints: 300 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.voidwalk = true; }
+                        },
+                        {
+                            id: 'mana_wells',
+                            name: 'Mana Wells', icon: '💎',
+                            effect: 'HE3 production +25%',
+                            lore: `Wells tap the psychic substrate of stars for usable fuel.`,
+                            cost: { credits: 340000, metal: 60000, researchPoints: 220 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.manaWells = true; }
+                        },
+                        {
+                            id: 'sanctum_economy',
+                            name: 'Sanctum Economy', icon: '🛕',
+                            effect: 'Credit production +20%',
+                            lore: `Sanctum tithes flow without coercion. Abundance is doctrine.`,
+                            cost: { credits: 320000, metal: 50000, researchPoints: 210 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.sanctumEconomy = true; }
+                        },
+                        {
+                            id: 'relic_attunement',
+                            name: 'Relic Attunement', icon: '📿',
+                            effect: 'Relic scout and excavate costs −30%',
+                            lore: `Ancient sites recognize Ascended minds. Barriers lower themselves.`,
+                            cost: { credits: 360000, metal: 80000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.relicAttunement = true; }
+                        },
+                        {
+                            id: 'harmonic_defense',
+                            name: 'Harmonic Defense', icon: '🔔',
+                            effect: 'Planet defense +20%',
+                            lore: `Defensive harmonics turn kinetic fury into wasted vibration.`,
+                            cost: { credits: 480000, metal: 110000, researchPoints: 290 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.harmonicDefense = true; }
+                        },
+                        {
+                            id: 'enlightened_yards',
+                            name: 'Enlightened Yards', icon: '🛠️',
+                            effect: 'Ship build credit cost −10%',
+                            lore: `Thought-forged tooling lowers the price of every keel.`,
+                            cost: { credits: 300000, metal: 70000, researchPoints: 200 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.enlightenedYards = true; }
+                        },
+                        {
+                            id: 'transcendence_protocol',
+                            name: 'Transcendence Protocol', icon: '🌟',
+                            effect: 'RP generation +25% and maintenance −15%',
+                            lore: `The final protocol: know more, spend less, become more.`,
+                            cost: { credits: 1000000, metal: 180000, researchPoints: 500 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.transcendenceProtocol = true; }
+                        },
                     ],
                     'The Viral Race': [
                         {
@@ -16981,6 +17483,126 @@ const SHIP_IMAGE_DATA = {
                             lore: `When the Viral Race lays siege, they do not merely blockade — they infect. Production halts. Workers collapse. The planet dies quietly.`,
                             cost: { credits: 600000, metal: 120000, researchPoints: 350 },
                             apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.pandemicProtocol = true; }
+                        },
+                        {
+                            id: 'hyperplasia',
+                            name: 'Hyperplasia', icon: '🧫',
+                            effect: 'Population growth +40%',
+                            lore: `Tissue multiplies without limit. Worlds swell with biomass.`,
+                            cost: { credits: 280000, metal: 60000, researchPoints: 190 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.hyperplasia = true; }
+                        },
+                        {
+                            id: 'biomass_farms',
+                            name: 'Biomass Farms', icon: '🌾',
+                            effect: 'Food production +35%',
+                            lore: `Farms grow flesh as readily as grain. The hive never hungers.`,
+                            cost: { credits: 260000, metal: 50000, researchPoints: 180 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.biomassFarms = true; }
+                        },
+                        {
+                            id: 'viral_incubators',
+                            name: 'Viral Incubators', icon: '🧪',
+                            effect: 'Ship build time −20%',
+                            lore: `Ships gestate in orbital cysts. Birth is faster than construction.`,
+                            cost: { credits: 340000, metal: 100000, researchPoints: 230 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.viralIncubators = true; }
+                        },
+                        {
+                            id: 'corrosion_spores',
+                            name: 'Corrosion Spores', icon: '🧪',
+                            effect: 'Attack power +12%; defender food −8% on attack',
+                            lore: `Spores eat hulls and stores alike. Hunger follows the fleet.`,
+                            cost: { credits: 450000, metal: 110000, researchPoints: 280 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.corrosionSpores = true; }
+                        },
+                        {
+                            id: 'host_adaptation',
+                            name: 'Host Adaptation', icon: '🧬',
+                            effect: 'Combat loss rate −18%',
+                            lore: `Crews mutate mid-battle. What does not kill them rewrites them.`,
+                            cost: { credits: 480000, metal: 120000, researchPoints: 300 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.hostAdaptation = true; }
+                        },
+                        {
+                            id: 'infectious_range',
+                            name: 'Infectious Range', icon: '📡',
+                            effect: 'Sensor radius +15%; enemy fleets in your sensors deal −8% damage',
+                            lore: `Spore fog extends the hive's reach. Intruders weaken on approach.`,
+                            cost: { credits: 400000, metal: 90000, researchPoints: 260 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.infectiousRange = true; }
+                        },
+                        {
+                            id: 'swarm_reproduction',
+                            name: 'Swarm Reproduction', icon: '🐛',
+                            effect: 'Colonize cost −20%',
+                            lore: `Seed pods cheapen every landing. Worlds are nurseries.`,
+                            cost: { credits: 220000, metal: 50000, researchPoints: 170 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.swarmReproduction = true; }
+                        },
+                        {
+                            id: 'necrophage_yield',
+                            name: 'Necrophage Yield', icon: '🦴',
+                            effect: 'On attack win: convert 5% of defender population into food',
+                            lore: `The dead feed the living. Biomass is never wasted.`,
+                            cost: { credits: 500000, metal: 100000, researchPoints: 310 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.necrophageYield = true; }
+                        },
+                        {
+                            id: 'blight_engines',
+                            name: 'Blight Engines', icon: '🚂',
+                            effect: 'Siege travel time −25%',
+                            lore: `Blight drives push siege fleets through the void like infection through veins.`,
+                            cost: { credits: 360000, metal: 100000, researchPoints: 240 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.blightEngines = true; }
+                        },
+                        {
+                            id: 'vector_cascade',
+                            name: 'Vector Cascade', icon: '🔁',
+                            effect: 'Infect chance +15%; reverse-engineer at 2 captures instead of 3',
+                            lore: `Cascading vectors make resistance statistically impossible.`,
+                            cost: { credits: 550000, metal: 130000, researchPoints: 330 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.vectorCascade = true; }
+                        },
+                        {
+                            id: 'parasite_economy',
+                            name: 'Parasite Economy', icon: '🪱',
+                            effect: 'Credit and metal production +15%',
+                            lore: `Parasites harvest host worlds without killing the golden goose — yet.`,
+                            cost: { credits: 320000, metal: 90000, researchPoints: 210 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.parasiteEconomy = true; }
+                        },
+                        {
+                            id: 'quarantine_break',
+                            name: 'Quarantine Break', icon: '🔓',
+                            effect: 'Siege duration −30% as attacker',
+                            lore: `Quarantines fail. Always. The hive designs them that way.`,
+                            cost: { credits: 580000, metal: 120000, researchPoints: 340 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.quarantineBreak = true; }
+                        },
+                        {
+                            id: 'spore_reservoirs',
+                            name: 'Spore Reservoirs', icon: '🫙',
+                            effect: 'Food upkeep −25%',
+                            lore: `Stored spores nourish the swarm between feedings.`,
+                            cost: { credits: 240000, metal: 45000, researchPoints: 180 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.sporeReservoirs = true; }
+                        },
+                        {
+                            id: 'latent_infection',
+                            name: 'Latent Infection', icon: '💤',
+                            effect: 'Planets you siege produce 20% resources (instead of 40%; stacks under Pandemic)',
+                            lore: `Latent strains choke production long before the final plague.`,
+                            cost: { credits: 520000, metal: 110000, researchPoints: 320 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.latentInfection = true; }
+                        },
+                        {
+                            id: 'pandemic_apex',
+                            name: 'Pandemic Apex', icon: '☠️',
+                            effect: 'Captured planets start +20% population; +10% pop growth for 10 min after capture',
+                            lore: `The apex strain blooms on conquest. New hosts multiply in ecstasy.`,
+                            cost: { credits: 1100000, metal: 200000, researchPoints: 520 },
+                            apply: (g) => { g._raceTechFlags = g._raceTechFlags||{}; g._raceTechFlags.pandemicApex = true; }
                         },
                     ],
                 };
@@ -17428,6 +18050,10 @@ const SHIP_IMAGE_DATA = {
                 }
                 // Manifest Destiny (Terran Empire) — +40% sensor radius
                 if (this.hasRaceTech('manifest_destiny')) mult *= 1.40;
+                if (this.hasRaceTech('forward_operating_bases')) mult *= 1.20;
+                if (this.hasRaceTech('skinhunter_optics')) mult *= 1.25;
+                if (this.hasRaceTech('precog_array')) mult *= 1.30;
+                if (this.hasRaceTech('infectious_range')) mult *= 1.15;
                 return BASE_RADIUS * mult;
             }
 
@@ -17981,8 +18607,9 @@ const SHIP_IMAGE_DATA = {
                 if (planet.relicUnlockStep >= 1) { this.showNotification('✅ System already scouted.'); return; }
 
                 const _ancSignal = this._hazardFlags?.ancientSignal;
-                const he3Cost    = _ancSignal ? 250   : 500;
-                const creditCost = _ancSignal ? 1000  : 2000;
+                let he3Cost    = _ancSignal ? 250   : 500;
+                let creditCost = _ancSignal ? 1000  : 2000;
+                if (this.hasRaceTech('relic_attunement')) { he3Cost = Math.floor(he3Cost * 0.70); creditCost = Math.floor(creditCost * 0.70); }
                 if (this.resources.he3 < he3Cost || this.resources.credits < creditCost) {
                     this.showNotification(`⚠️ Need ₡${creditCost.toLocaleString()} + ⚡${he3Cost.toLocaleString()} HE3 to scout this system.${_ancSignal ? ' (50% discount — Ancient Signal active!)' : ''}`);
                     return;
@@ -18010,9 +18637,16 @@ const SHIP_IMAGE_DATA = {
                 if (planet.relicUnlockStep >= 2) { this.showNotification('✅ Excavation already complete.'); return; }
 
                 const _sig2 = this._hazardFlags?.ancientSignal;
-                const he3Cost    = _sig2 ? 750   : 1500;
-                const metalCost  = _sig2 ? 2500  : 5000;
-                const creditCost = _sig2 ? 4000  : 8000;
+                let he3Cost    = _sig2 ? 750   : 1500;
+                let metalCost  = _sig2 ? 2500  : 5000;
+                let creditCost = _sig2 ? 4000  : 8000;
+                if (this.hasRaceTech('relic_attunement')) {
+                    he3Cost = Math.floor(he3Cost * 0.70);
+                    metalCost = Math.floor(metalCost * 0.70);
+                    creditCost = Math.floor(creditCost * 0.70);
+                }
+                let excavateMs = 90000;
+                if (this.hasRaceTech('rift_drills')) excavateMs = Math.floor(excavateMs * 0.70);
                 if (this.resources.he3 < he3Cost || this.resources.metal < metalCost || this.resources.credits < creditCost) {
                     this.showNotification(`⚠️ Need ₡${creditCost.toLocaleString()} + ⚡${he3Cost.toLocaleString()} HE3 + 🔩${metalCost.toLocaleString()} metal to excavate.${_sig2 ? ' (50% discount!)' : ''}`);
                     return;
@@ -18022,14 +18656,14 @@ const SHIP_IMAGE_DATA = {
                 this.resources.metal   -= metalCost;
                 this.resources.credits -= creditCost;
                 this.updateResources();
-                this.showNotification(`⛏️ Excavating ${planet.name}… (90s)`);
+                this.showNotification(`⛏️ Excavating ${planet.name}… (${Math.round(excavateMs/1000)}s)`);
 
                 setTimeout(() => {
                     planet.relicUnlockStep = 2;
                     this.showNotification(`🏛️ Ruins exposed on ${planet.name}! Decrypt the data cores to claim it.`);
                     this.renderAvailablePlanets();
                     this.saveGameState();
-                }, 90000);
+                }, excavateMs);
             }
 
             // Step 3 of 3: Decrypt — makes the planet claimable via normal claimPlanet
@@ -18212,7 +18846,9 @@ const SHIP_IMAGE_DATA = {
                 if (!c) return 1.0;
 
                 const control = this._constellationControlCache.find(cc => cc.id === c.id);
-                if (control && control.isPlayerControlled) return 1.20;
+                if (control && control.isPlayerControlled) {
+                    return this.hasRaceTech('territorial_mark') ? 1.30 : 1.20;
+                }
                 return 1.0;
             }
 
@@ -18413,8 +19049,13 @@ const SHIP_IMAGE_DATA = {
                 const avgX = ownedPlanets.reduce((s, p) => s + p.position.x, 0) / (ownedPlanets.length || 1);
                 const avgY = ownedPlanets.reduce((s, p) => s + p.position.y, 0) / (ownedPlanets.length || 1);
                 const planetCount = this.planets.length;
-                const travelTime  = Math.max(30, Math.floor((5 + planetCount * 0.5) * 15));
-                const he3Cost     = Math.floor((200 + planetCount * 20) * 5);
+                let travelTime  = Math.max(30, Math.floor((5 + planetCount * 0.5) * 15));
+                let he3Cost     = Math.floor((200 + planetCount * 20) * 5);
+                if (this.hasRaceTech('rapid_response')) travelTime = Math.max(30, Math.floor(travelTime * 0.75));
+                if (this.hasRaceTech('blight_engines')) travelTime = Math.max(30, Math.floor(travelTime * 0.75));
+                if (this.hasRaceTech('voidwalk')) travelTime = Math.max(30, Math.floor(travelTime * 0.80));
+                if (this.hasRaceTech('ashen_march')) he3Cost = Math.floor(he3Cost * 0.70);
+                if (this.hasRaceTech('fuel_siphon')) he3Cost = Math.floor(he3Cost * 0.75);
 
                 if (this.resources.he3 < he3Cost) {
                     this.showNotification(`⚠️ Need ⚡${he3Cost.toLocaleString()} HE3 to reach ${target.name}!`);
@@ -18558,8 +19199,11 @@ const SHIP_IMAGE_DATA = {
 
                 // Diplomatic Immunity (Terran Empire) — defender's sieges last 20% longer
                 const targetIsMe = target.owner === this.selectedRace?.name;
-                const SIEGE_DURATION_MS = (targetIsMe && this.hasRaceTech('diplomatic_immunity'))
+                let SIEGE_DURATION_MS = (targetIsMe && this.hasRaceTech('diplomatic_immunity'))
                     ? Math.floor(5 * 60 * 1000 * 1.20) : 5 * 60 * 1000;
+                if (!targetIsMe && this.hasRaceTech('imperial_edict')) SIEGE_DURATION_MS = Math.floor(SIEGE_DURATION_MS * 0.80);
+                if (!targetIsMe && this.hasRaceTech('fear_broadcast')) SIEGE_DURATION_MS = Math.floor(SIEGE_DURATION_MS * 0.75);
+                if (!targetIsMe && this.hasRaceTech('quarantine_break')) SIEGE_DURATION_MS = Math.floor(SIEGE_DURATION_MS * 0.70);
                 const missionFleetIdx = usingFleet ? fleetIdx : null;
                 const missionShipNames = usingFleet ? null : Object.keys(force);
                 const siegeOrigin = this.getPrimaryFleetBasePlanet();
@@ -18595,7 +19239,8 @@ const SHIP_IMAGE_DATA = {
                     }
                     if (target.botGarrisonPower) defense += target.botGarrisonPower;
 
-                    if (totalPower < defense * 0.5) {
+                    const siegeThreshold = this.hasRaceTech('dynasty_levy') ? 0.40 : 0.50;
+                    if (totalPower < defense * siegeThreshold) {
                         // Too weak to establish orbit — siege fails immediately
                         const losses = {};
                         Object.entries(force).forEach(([n, qty]) => { losses[n] = Math.ceil(qty * 0.4); });
@@ -18668,6 +19313,10 @@ const SHIP_IMAGE_DATA = {
                 target.owner = this.selectedRace.name;
                 target.ownerUsername = this.playerData?.username || this.selectedRace.name;
                 target.botGarrison = {};
+                if (this.hasRaceTech('pandemic_apex')) {
+                    target.population = Math.floor((target.population || 500) * 1.20);
+                    this._pandemicApexUntil = Date.now() + 10 * 60 * 1000;
+                }
                 target.botGarrisonPower = 0;
 
                 this._returnSiegeForce(missionFleetIdx, missionShipNames, force);
@@ -18754,15 +19403,24 @@ const SHIP_IMAGE_DATA = {
                     defense -= Math.floor((target.buildings['Space Station'] || 0) * 1000 * (1 - ssMult));
                     defense = Math.max(1000, defense);
                 }
-                // Apex Predator (Kor'ai Dynasty) — +30% damage on first strike
-                const effectiveAttackPower = this.hasRaceTech('apex_predator')
-                    ? Math.floor(attackPower * 1.30) : attackPower;
+                // Attack power race-tech multipliers
+                let atkMult = 1.0;
+                if (this.hasRaceTech('apex_predator')) atkMult *= 1.30;
+                if (this.hasRaceTech('kill_scent')) atkMult *= 1.15;
+                if (this.hasRaceTech('pack_hunting')) atkMult *= 1.15;
+                if (this.hasRaceTech('strike_first_ask_never')) atkMult *= 1.20;
+                if (this.hasRaceTech('psionic_barrage')) atkMult *= 1.18;
+                if (this.hasRaceTech('corrosion_spores')) atkMult *= 1.12;
+                const effectiveAttackPower = Math.floor(attackPower * atkMult);
                 const isVictory = effectiveAttackPower > defense;
 
                 // ── Compute per-ship losses for the After-Action Report ──
                 const attackerLosses    = {};
                 const defenderDestroyed = {};
-                const lossRate = isVictory ? 0.20 : 0.50;
+                let lossRate = isVictory ? 0.20 : 0.50;
+                if (this.hasRaceTech('patched_hulls')) lossRate *= 0.80; // player is attacker here
+                if (this.hasRaceTech('ethereal_hulls')) lossRate *= 0.85;
+                if (this.hasRaceTech('host_adaptation')) lossRate *= 0.82;
 
                 // Attacker losses — based on outcome percentage
                 Object.entries(attackForce).forEach(([shipName, quantity]) => {
@@ -18809,7 +19467,14 @@ const SHIP_IMAGE_DATA = {
                 if (this.hasRaceTech('terror_doctrine') && target.resources?.food) {
                     target.resources.food = Math.max(0, Math.floor(target.resources.food * 0.85));
                 }
-                this.showNotification(`⚔️ Battle at ${target.name}! Attack: ${attackPower} vs Defense: ${defense}`);
+                if (this.hasRaceTech('corrosion_spores')) {
+                    if (target.resources?.food != null) {
+                        target.resources.food = Math.max(0, Math.floor(target.resources.food * 0.92));
+                    } else if (typeof this.resources?.food === 'number' && target.owner && target.owner !== this.selectedRace?.name) {
+                        // NPC planets may not store food locally; soft drain ignored
+                    }
+                }
+                this.showNotification(`⚔️ Battle at ${target.name}! Attack: ${effectiveAttackPower} vs Defense: ${defense}`);
                 
                 // Wait for simulation to complete (30 seconds)
                 setTimeout(() => {
@@ -18822,6 +19487,42 @@ const SHIP_IMAGE_DATA = {
                             const ship = this.ships[shipName];
                             if (ship) ship.count = Math.max(0, ship.count - losses);
                         });
+
+                        // Loot / economy race techs on victory
+                        if (this.hasRaceTech('blood_tithe')) {
+                            // Approximate: grant metal based on planet metal rate * owned scaling
+                            const lootMetal = Math.floor(Math.max(500, (target.resources?.metal || 2000)) * 0.08);
+                            this.resources.metal = (this.resources.metal || 0) + lootMetal;
+                            this.showNotification(`🩸 Blood Tithe: +🔩${lootMetal.toLocaleString()} metal`);
+                        }
+                        if (this.hasRaceTech('loot_protocols')) {
+                            const lootCredits = Math.floor(Math.max(1000, (target.resources?.credits || 5000)) * 0.12);
+                            this.resources.credits = (this.resources.credits || 0) + lootCredits;
+                            this.showNotification(`💰 Loot Protocols: +₡${lootCredits.toLocaleString()}`);
+                        }
+                        if (this.hasRaceTech('plunder_doctrine')) {
+                            const lootFood = Math.floor(Math.max(200, (target.resources?.food || 1000)) * 0.10);
+                            this.resources.food = (this.resources.food || 0) + lootFood;
+                            if (target.resources?.food != null) target.resources.food = Math.max(0, Math.floor(target.resources.food * 0.90));
+                            this.showNotification(`🏴‍☠️ Plunder: +🌾${lootFood.toLocaleString()} food`);
+                        }
+                        if (this.hasRaceTech('necrophage_yield')) {
+                            const preyPop = target.population || 500;
+                            const foodGain = Math.floor(preyPop * 0.05);
+                            this.resources.food = (this.resources.food || 0) + foodGain;
+                            this.showNotification(`🦴 Necrophage Yield: +🌾${foodGain.toLocaleString()} food from biomass`);
+                        }
+                        if (this.hasRaceTech('war_bonds') && this._lastAttackHe3Cost) {
+                            const refund = Math.floor(this._lastAttackHe3Cost * 0.10);
+                            this.resources.credits = (this.resources.credits || 0) + refund;
+                            this.showNotification(`📊 War Bonds: +₡${refund.toLocaleString()} (10% HE3 refund)`);
+                        }
+                        if (this.hasRaceTech('pandemic_apex')) {
+                            const basePop = target.population || 500;
+                            target.population = Math.floor(basePop * 1.20);
+                            this._pandemicApexUntil = Date.now() + 10 * 60 * 1000;
+                            this.showNotification(`☠️ Pandemic Apex: population bloom on ${target.name}!`);
+                        }
 
                         // Record to battle history
                         this._recordBattle({
@@ -18863,7 +19564,8 @@ const SHIP_IMAGE_DATA = {
                                 const after  = this.capturedShips[shipName] || 0;
                                 const gained = after - before;
                                 if (gained > 0) infectResults.push({ name: shipName, captured: gained });
-                                if (after >= 3 && !this.reverseEngineered[shipName]) {
+                                const reNeed = this.hasRaceTech('vector_cascade') ? 2 : 3;
+                                if (after >= reNeed && !this.reverseEngineered[shipName]) {
                                     viralGained.push({ name: shipName, total: after });
                                 }
                             };
@@ -18906,14 +19608,31 @@ const SHIP_IMAGE_DATA = {
                             defenderSnapshot: JSON.parse(JSON.stringify(target.botGarrison || {})),
                         });
 
-                        // Void Salvage (Reaper Collective) — 10% chance to recover a random enemy ship on defeat
-                        if (this.hasRaceTech('void_salvage') && Math.random() < 0.10) {
+                        // Void Salvage / Wreck Beacon — chance to recover a random enemy ship on defeat
+                        let salvageChance = 0;
+                        if (this.hasRaceTech('void_salvage')) salvageChance += 0.10;
+                        if (this.hasRaceTech('wreck_beacon')) salvageChance += this.hasRaceTech('void_salvage') ? 0.05 : 0.08;
+                        if (salvageChance > 0 && Math.random() < salvageChance) {
                             const allRS = Object.values(SHIP_CLASSES).flat();
                             if (allRS.length > 0) {
                                 const sv = allRS[Math.floor(Math.random() * allRS.length)];
                                 if (!this.ships[sv.name]) this.ships[sv.name] = { ...sv, count: 0, researched: true };
                                 this.ships[sv.name].count = (this.ships[sv.name].count || 0) + 1;
-                                this.showNotification(`♻️ Void Salvage: Recovered 1 ${sv.icon} ${sv.name} from the wreckage!`);
+                                this.showNotification(`♻️ Salvage: Recovered 1 ${sv.icon} ${sv.name} from the wreckage!`);
+                            }
+                        }
+
+                        // Reclamation Rite — recover 15% of lost fleet metal
+                        if (this.hasRaceTech('reclamation_rite')) {
+                            let lostMetal = 0;
+                            Object.entries(attackerLosses).forEach(([shipName, losses]) => {
+                                const ship = this.ships[shipName];
+                                if (ship) lostMetal += (ship.metalCost || 0) * losses;
+                            });
+                            const reclaim = Math.floor(lostMetal * 0.15);
+                            if (reclaim > 0) {
+                                this.resources.metal = (this.resources.metal || 0) + reclaim;
+                                this.showNotification(`🧲 Reclamation Rite: +🔩${reclaim.toLocaleString()} metal from wreckage`);
                             }
                         }
 
@@ -19846,8 +20565,10 @@ const SHIP_IMAGE_DATA = {
                     return;
                 }
 
-                const claimCost = 500 + (ownedCount * 100);
-                const he3Cost   = 100 + (ownedCount * 20);
+                let claimCost = 500 + (ownedCount * 100);
+                let he3Cost   = 100 + (ownedCount * 20);
+                if (this.hasRaceTech('frontier_charter')) { claimCost = Math.floor(claimCost * 0.75); he3Cost = Math.floor(he3Cost * 0.75); }
+                if (this.hasRaceTech('swarm_reproduction')) { claimCost = Math.floor(claimCost * 0.80); he3Cost = Math.floor(he3Cost * 0.80); }
 
                 if (this.resources.credits >= claimCost && this.resources.he3 >= he3Cost) {
                     this.resources.credits -= claimCost;
@@ -22458,8 +23179,9 @@ const SHIP_IMAGE_DATA = {
                 // Process ship research queue
                 if (this.researchQueue.length === 0) return;
                 
+                const shipResearchTick = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
                 this.researchQueue = this.researchQueue.map(research => {
-                    research.timeRemaining -= 1;
+                    research.timeRemaining -= shipResearchTick;
                     
                     if (research.timeRemaining <= 0) {
                         // Mark ship as researched
@@ -22483,7 +23205,8 @@ const SHIP_IMAGE_DATA = {
                     const currentTech = this.techResearchQueue[0];
                     const tech = this.technologies[currentTech.id];
                     
-                    currentTech.progress += 1;
+                    const techTick = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
+                    currentTech.progress = (currentTech.progress || 0) + techTick;
                     tech.progress = currentTech.progress;
                     
                     if (currentTech.progress >= currentTech.time) {
@@ -22768,8 +23491,16 @@ const SHIP_IMAGE_DATA = {
             buildShips(shipName) {
                 const ship = this.ships[shipName];
                 const quantity = this.buildQuantities[shipName] || 1;
-                const totalMetal = ship.metalCost * quantity;
-                const totalCredits = ship.creditCost * quantity;
+                let metalMult = 1.0, creditMult = 1.0, timeMult = 1.0;
+                if (this.hasRaceTech('orbital_logistics')) { metalMult *= 0.85; creditMult *= 0.85; }
+                if (this.hasRaceTech('scrapyard_economy')) metalMult *= 0.75;
+                if (this.hasRaceTech('enlightened_yards')) creditMult *= 0.90;
+                if (this.hasRaceTech('fleet_academy')) timeMult *= 0.80;
+                if (this.hasRaceTech('clan_forges')) timeMult *= 0.75;
+                if (this.hasRaceTech('cannibal_yards')) timeMult *= 0.85;
+                if (this.hasRaceTech('viral_incubators')) timeMult *= 0.80;
+                const totalMetal = Math.floor(ship.metalCost * quantity * metalMult);
+                const totalCredits = Math.floor(ship.creditCost * quantity * creditMult);
                 
                 if (this.resources.metal >= totalMetal && this.resources.credits >= totalCredits) {
                     this.resources.metal -= totalMetal;
@@ -22777,7 +23508,7 @@ const SHIP_IMAGE_DATA = {
                     
                     // Add to build queue instead of instant build
                     // Build time: 1 second per 10 credits
-                    let buildTime = Math.ceil((ship.creditCost / 10) * quantity);
+                    let buildTime = Math.ceil((ship.creditCost / 10) * quantity * timeMult);
                     if (this.hasRaceTech('jury_rigging')) buildTime = Math.floor(buildTime * 0.6);
                     
                     this.buildQueue.push({
@@ -22803,9 +23534,17 @@ const SHIP_IMAGE_DATA = {
                 if (!ship) return;
                 
                 const quantity = this.buildQuantities[shipName] || 1;
-                const totalMetal = ship.metalCost * quantity;
+                let metalMult = 1.0, creditMult = 1.0, timeMult = 1.0;
+                if (this.hasRaceTech('orbital_logistics')) { metalMult *= 0.85; creditMult *= 0.85; }
+                if (this.hasRaceTech('scrapyard_economy')) metalMult *= 0.75;
+                if (this.hasRaceTech('enlightened_yards')) creditMult *= 0.90;
+                if (this.hasRaceTech('fleet_academy')) timeMult *= 0.80;
+                if (this.hasRaceTech('clan_forges')) timeMult *= 0.75;
+                if (this.hasRaceTech('cannibal_yards')) timeMult *= 0.85;
+                if (this.hasRaceTech('viral_incubators')) timeMult *= 0.80;
+                const totalMetal = Math.floor(ship.metalCost * quantity * metalMult);
                 const totalHe3 = ship.he3Cost * quantity;
-                const totalCredits = ship.creditCost * quantity;
+                const totalCredits = Math.floor(ship.creditCost * quantity * creditMult);
                 
                 // Check if player can afford
                 if (this.resources.metal >= totalMetal && 
@@ -22818,7 +23557,7 @@ const SHIP_IMAGE_DATA = {
                     this.resources.credits -= totalCredits;
                     
                     // Add to build queue
-                    let buildTime = ship.time * quantity;
+                    let buildTime = Math.floor(ship.time * quantity * timeMult);
                     if (this.hasRaceTech('jury_rigging')) buildTime = Math.floor(buildTime * 0.6);
                     
                     this.buildQueue.push({
@@ -22870,16 +23609,18 @@ const SHIP_IMAGE_DATA = {
                 }
 
                 // Infect chance scales with number of infecting ships
-                const infectChance = Math.min(0.9, 0.25 + infectingShipCount * 0.05);
+                let infectChance = Math.min(0.9, 0.25 + infectingShipCount * 0.05);
+                if (this.hasRaceTech('vector_cascade')) infectChance = Math.min(0.95, infectChance + 0.15);
                 const captured = Math.random() < infectChance ? 1 : 0;
+                const reThreshold = this.hasRaceTech('vector_cascade') ? 2 : 3;
 
                 if (captured > 0) {
                     this.capturedShips[defeatedShipName] = (this.capturedShips[defeatedShipName] || 0) + captured;
                     const captureCount = this.capturedShips[defeatedShipName];
 
-                    this.showNotification(`🦠 INFECTED! Captured 1x ${defeatedShipName} (${captureCount}/3 for reverse-engineering)`);
+                    this.showNotification(`🦠 INFECTED! Captured 1x ${defeatedShipName} (${captureCount}/${reThreshold} for reverse-engineering)`);
 
-                    if (captureCount >= 3) {
+                    if (captureCount >= reThreshold) {
                         this.triggerReverseEngineer(defeatedShipName, defeatedShipData);
                     }
                 } else {
@@ -23224,11 +23965,15 @@ const SHIP_IMAGE_DATA = {
                 const currentLevel = planet.buildings[buildingName] || 0;
                 
                 if (currentLevel >= building.maxLevel) return;
-                if (this.resources.metal < building.cost.metal || 
-                    this.resources.credits < building.cost.credits) return;
+                let bMetal = building.cost.metal;
+                let bCredits = building.cost.credits;
+                if (this.hasRaceTech('civic_works')) { bMetal = Math.floor(bMetal * 0.80); bCredits = Math.floor(bCredits * 0.80); }
+                if (this.hasRaceTech('blast_tunnels')) bMetal = Math.floor(bMetal * 0.85);
+                if (this.resources.metal < bMetal || 
+                    this.resources.credits < bCredits) return;
                 
-                this.resources.metal -= building.cost.metal;
-                this.resources.credits -= building.cost.credits;
+                this.resources.metal -= bMetal;
+                this.resources.credits -= bCredits;
                 const prevTier = this.getPlanetTierInfo(planet).tier;
                 planet.buildings[buildingName] = currentLevel + 1;
                 if (window.tutorialManager) window.tutorialManager.completeAction('build_building');
@@ -23632,6 +24377,10 @@ const SHIP_IMAGE_DATA = {
                     }
                 });
                 
+                if (this.hasRaceTech('trade_federation')) total = Math.floor(total * 0.75);
+                if (this.hasRaceTech('sovereign_hoard')) total = Math.floor(total * 0.80);
+                if (this.hasRaceTech('junk_armada')) total = Math.floor(total * 0.70);
+                if (this.hasRaceTech('transcendence_protocol')) total = Math.floor(total * 0.85);
                 return { total, breakdown };
             }
             
@@ -23697,10 +24446,17 @@ const SHIP_IMAGE_DATA = {
                     const siegeActive = planet.siegedBy && planet.siegedUntil > Date.now();
                     const siegerHasPandemic = siegeActive && window.game?.hasRaceTech('pandemic_protocol') &&
                         window.game?.selectedRace?.name === planet.siegedBy;
-                    const siegeMultiplier = !siegeActive ? 1.0 : (siegerHasPandemic ? 0.0 : 0.40);
+                    const siegerHasLatent = siegeActive && window.game?.hasRaceTech('latent_infection') &&
+                        window.game?.selectedRace?.name === planet.siegedBy;
+                    const siegeMultiplier = !siegeActive ? 1.0 : (siegerHasPandemic ? 0.0 : (siegerHasLatent ? 0.20 : 0.40));
                     // Seismic Drilling (Kor'ai Dynasty) — +45% metal from rocky/barren planets
                     const seismicBonus = (this.hasRaceTech('seismic_drilling') &&
                         ['Rocky', 'Barren', 'Desert', 'Ice', 'Volcanic'].includes(planet.type)) ? 1.45 : 1.0;
+                    const deepCoreBonus = this.hasRaceTech('deep_core_assays') ? 1.30 : 1.0;
+                    const he3SiphonBonus = this.hasRaceTech('he3_siphon') ? 1.40 : 1.0;
+                    const manaWellsBonus = this.hasRaceTech('mana_wells') ? 1.25 : 1.0;
+                    const biomassBonus = this.hasRaceTech('biomass_farms') ? 1.35 : 1.0;
+                    const parasiteMetal = this.hasRaceTech('parasite_economy') ? 1.15 : 1.0;
                     // Tier production bonus
                     const tierMultiplier = this.getTierProductionMultiplier(planet);
                     // Constellation zone control bonus (+20% if player controls the zone)
@@ -23719,9 +24475,9 @@ const SHIP_IMAGE_DATA = {
                     const pMetal = planet.resources?.metal ?? 0;
                     const pHe3   = planet.resources?.he3 ?? 0;
                     const pFood  = planet.resources?.food ?? 0;
-                    this.resources.metal += Math.floor((pMetal / 60) * metalBonus * miningMultiplier * globalMetalModifier * siegeMultiplier * tierMultiplier * constellationMultiplier * seismicBonus * bloomMetal * typeMetal);
-                    this.resources.he3 += Math.floor((pHe3 / 60) * globalHE3Modifier * siegeMultiplier * tierMultiplier * constellationMultiplier * bloomHe3 * typeHe3);
-                    this.resources.food += Math.floor((pFood / 60) * foodBonus * artifactFoodBonus * globalFoodModifier * foodProductionMultiplier * siegeMultiplier * tierMultiplier * constellationMultiplier * bloomFood * typeFood);
+                    this.resources.metal += Math.floor((pMetal / 60) * metalBonus * miningMultiplier * globalMetalModifier * siegeMultiplier * tierMultiplier * constellationMultiplier * seismicBonus * deepCoreBonus * parasiteMetal * bloomMetal * typeMetal);
+                    this.resources.he3 += Math.floor((pHe3 / 60) * globalHE3Modifier * siegeMultiplier * tierMultiplier * constellationMultiplier * he3SiphonBonus * manaWellsBonus * bloomHe3 * typeHe3);
+                    this.resources.food += Math.floor((pFood / 60) * foodBonus * artifactFoodBonus * globalFoodModifier * foodProductionMultiplier * siegeMultiplier * tierMultiplier * constellationMultiplier * biomassBonus * bloomFood * typeFood);
                     
                     // NEW POPULATION GROWTH: +1% per minute with cap of 2500 per planet
                     // Apply race population modifier AND artifact population bonus
@@ -23735,7 +24491,13 @@ const SHIP_IMAGE_DATA = {
                         
                         if (planet.population < maxPlanetPop) {
                             const basePopGrowth = Math.ceil((planet.population * 0.01) / 60); // 1% per minute
-                            const popGrowth = Math.ceil(basePopGrowth * populationMultiplier * artifactPopBonus); // Apply race AND artifact modifiers
+                            let popMult = populationMultiplier * artifactPopBonus;
+                            if (this.hasRaceTech('homestead_act')) popMult *= 1.25;
+                            if (this.hasRaceTech('nesting_grounds')) popMult *= 1.20;
+                            if (this.hasRaceTech('hyperplasia')) popMult *= 1.40;
+                            if (this.hasRaceTech('adaptive_mutation')) popMult *= (1 + (this._adaptiveMutationBonus || 0));
+                            if (this.hasRaceTech('pandemic_apex') && this._pandemicApexUntil && Date.now() < this._pandemicApexUntil) popMult *= 1.10;
+                            const popGrowth = Math.ceil(basePopGrowth * popMult);
                             const newPop = Math.min(planet.population + popGrowth, maxPlanetPop);
                             const actualGrowth = newPop - planet.population;
                             planet.population = newPop;
@@ -23799,7 +24561,9 @@ const SHIP_IMAGE_DATA = {
                 
                 // Food consumption: 2 food per 250 population per minute (converted to per second)
                 // Formula: (population / 250) * 2 / 60 = population / 7500
-                const foodConsumption = Math.floor(this.resources.population / 7500);
+                let foodConsumption = Math.floor(this.resources.population / 7500);
+                if (this.hasRaceTech('supply_corps')) foodConsumption = Math.floor(foodConsumption * 0.70);
+                if (this.hasRaceTech('spore_reservoirs')) foodConsumption = Math.floor(foodConsumption * 0.75);
                 this.resources.food -= foodConsumption;
                 
                 // Credit generation: 2.1 credits per 100 population per SECOND
@@ -23807,7 +24571,13 @@ const SHIP_IMAGE_DATA = {
                 const globalCreditModifier = 0.65 * 0.70 * 0.40; // = 0.182 (81.8% total reduction)
                 const baseCreditGeneration = Math.floor((this.resources.population / 100) * 2.1);
                 const foodGated = this.resources.food <= 0; // Halt credits when food is depleted
-                const creditGeneration = foodGated ? 0 : Math.floor(baseCreditGeneration * creditsMultiplier * globalCreditModifier);
+                let creditRaceMult = 1.0;
+                if (this.hasRaceTech('treasury_protocols')) creditRaceMult *= 1.35;
+                if (this.hasRaceTech('ore_caravans')) creditRaceMult *= 1.25;
+                if (this.hasRaceTech('black_market')) creditRaceMult *= 1.30;
+                if (this.hasRaceTech('sanctum_economy')) creditRaceMult *= 1.20;
+                if (this.hasRaceTech('parasite_economy')) creditRaceMult *= 1.15;
+                const creditGeneration = foodGated ? 0 : Math.floor(baseCreditGeneration * creditsMultiplier * globalCreditModifier * creditRaceMult);
                 if (foodGated) {
                     // Flash food display red as a warning (once every 10s)
                     if (this.resourceGenCounter % 600 === 0) {
@@ -23833,7 +24603,10 @@ const SHIP_IMAGE_DATA = {
                 });
                 
                 // Consciousness Expansion (The Ascended) — +60% research point generation
-                const rpMult = this.hasRaceTech('consciousness_expansion') ? 1.60 : 1.0;
+                let rpMult = 1.0;
+                if (this.hasRaceTech('consciousness_expansion')) rpMult *= 1.60;
+                if (this.hasRaceTech('neural_lattice')) rpMult *= 1.35;
+                if (this.hasRaceTech('transcendence_protocol')) rpMult *= 1.25;
                 this.resources.researchPoints = (this.resources.researchPoints || 0) + ((1 / 300) * researchBonus * scienceLabBonus * rpMult);
                 
                 // Apply tech bonuses to per-tick resource gains only (not to accumulated totals)
@@ -23884,11 +24657,15 @@ const SHIP_IMAGE_DATA = {
                 this.resources.food = Math.min(Math.max(0, this.resources.food), MAX_RESOURCE);
                 this.resources.population = Math.min(Math.max(0, this.resources.population), MAX_RESOURCE);
                 
-                // Phase Resonance (The Ascended) — passive shield regen 2%/min on ships
-                if (this.hasRaceTech('phase_resonance')) {
+                // Phase Resonance / Aegis Harmonics — passive shield regen
+                let shieldRegenPerMin = 0;
+                if (this.hasRaceTech('phase_resonance')) shieldRegenPerMin += 0.02;
+                if (this.hasRaceTech('aegis_harmonics')) shieldRegenPerMin += 0.01;
+                if (shieldRegenPerMin > 0) {
                     Object.values(this.ships || {}).forEach(ship => {
-                        if (ship.researched && ship.shield > 0 && ship.currentShield !== undefined) {
-                            ship.currentShield = Math.min(ship.shield, (ship.currentShield || 0) + ship.shield * 0.02 / 60);
+                        if (ship.researched && ship.shield > 0) {
+                            if (ship.currentShield === undefined) ship.currentShield = ship.shield;
+                            ship.currentShield = Math.min(ship.shield, (ship.currentShield || 0) + ship.shield * shieldRegenPerMin / 60);
                         }
                     });
                 }
