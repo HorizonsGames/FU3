@@ -16357,10 +16357,29 @@ const SHIP_IMAGE_DATA = {
                 `;
             }
             
+            dismissHoverImageModals() {
+                ['planetImageHover', 'clusterImageHover'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.remove();
+                });
+                if (this._hoverImageDismissBound) {
+                    document.removeEventListener('pointerdown', this._hoverImageDismissBound, true);
+                    this._hoverImageDismissBound = null;
+                }
+            }
+
+            _armHoverImageDismiss() {
+                if (this._hoverImageDismissBound) return;
+                this._hoverImageDismissBound = () => this.dismissHoverImageModals();
+                // Capture phase so Colonize/Cluster clicks clear the overlay even with stopPropagation
+                document.addEventListener('pointerdown', this._hoverImageDismissBound, true);
+            }
+
             showPlanetImageModal(planetType) {
                 const image = PLANET_IMAGE_DATA[planetType];
                 if (!image) return;
-                
+
+                this.hideClusterImageModal();
                 let modal = document.getElementById('planetImageHover');
                 if (!modal) {
                     modal = document.createElement('div');
@@ -16386,16 +16405,20 @@ const SHIP_IMAGE_DATA = {
                         border: 2px solid var(--accent-primary);
                     ">
                 `;
+                this._armHoverImageDismiss();
             }
             
             hidePlanetImageModal() {
                 const modal = document.getElementById('planetImageHover');
-                if (modal) {
-                    modal.remove();
+                if (modal) modal.remove();
+                if (!document.getElementById('clusterImageHover') && this._hoverImageDismissBound) {
+                    document.removeEventListener('pointerdown', this._hoverImageDismissBound, true);
+                    this._hoverImageDismissBound = null;
                 }
             }
             
             showClusterImageModal() {
+                this.hidePlanetImageModal();
                 let modal = document.getElementById('clusterImageHover');
                 if (!modal) {
                     modal = document.createElement('div');
@@ -16421,12 +16444,15 @@ const SHIP_IMAGE_DATA = {
                         border: 2px solid #9d4aff;
                     ">
                 `;
+                this._armHoverImageDismiss();
             }
             
             hideClusterImageModal() {
                 const modal = document.getElementById('clusterImageHover');
-                if (modal) {
-                    modal.remove();
+                if (modal) modal.remove();
+                if (!document.getElementById('planetImageHover') && this._hoverImageDismissBound) {
+                    document.removeEventListener('pointerdown', this._hoverImageDismissBound, true);
+                    this._hoverImageDismissBound = null;
                 }
             }
             
@@ -21069,6 +21095,7 @@ const SHIP_IMAGE_DATA = {
             }
             
             claimPlanet(planetId) {
+                this.dismissHoverImageModals();
                 const MAX_OWNED_PLANETS = 100000;
 
                 // Cast to number — IDs from onclick attrs arrive as numbers but
@@ -21472,6 +21499,7 @@ const SHIP_IMAGE_DATA = {
             }
             
             colonizePlanet() {
+                this.dismissHoverImageModals();
                 if (!this.selectedPlanet.owner) {
                     if (this.resources.credits >= 5000) {
                         this.resources.credits -= 5000;
@@ -24377,6 +24405,7 @@ const SHIP_IMAGE_DATA = {
             
             // Planet Management Methods
             switchPlanetTab(tab) {
+                this.dismissHoverImageModals();
                 this.currentPlanetTab = tab;
                 
                 // Update tab styles
@@ -24793,6 +24822,7 @@ const SHIP_IMAGE_DATA = {
             }
             
             createCluster(tier) {
+                this.dismissHoverImageModals();
                 const tierNames = {
                     1: 'Stellar Sector',
                     2: 'Galactic Region',
