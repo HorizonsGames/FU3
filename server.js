@@ -9,7 +9,8 @@ const authRoutes = require('./src/routes/auth');
 const stateRoutes = require('./src/routes/state');
 const guildRoutes = require('./src/routes/guild');
 const bossRoutes = require('./src/routes/boss');
-const { createHub } = require('./src/ws/hub');
+const ultimate = require('./src/routes/ultimate');
+const { createHub, broadcastGalaxy } = require('./src/ws/hub');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,6 +33,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', stateRoutes);
 app.use('/api', guildRoutes);
 app.use('/api', bossRoutes);
+app.use('/api', ultimate.router);
 
 // Serve the game client (index.html, assets/, ship art, music, etc.) from this
 // same app/process/port — one Heroku deploy serves both the game and the API,
@@ -47,9 +49,11 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 
 const server = http.createServer(app);
 createHub(server); // attaches the WebSocket server at /ws on this same HTTP server/port
+ultimate.setBroadcastGalaxy(broadcastGalaxy);
 
 async function start() {
     await db.initSchema();
+    ultimate.startUltimateAnnouncer();
     server.listen(PORT, () => {
         console.log(`[server] Fractured Universe backend listening on :${PORT}`);
         console.log(`[server] REST API at /api, WebSocket at /ws`);
