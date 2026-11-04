@@ -81,10 +81,13 @@
             height: 100vh;
             display: grid;
             grid-template-columns: 300px 1fr 360px;
-            grid-template-rows: 64px 1fr 180px;
+            grid-template-rows: 64px 1fr minmax(280px, 34vh);
             gap: 10px;
             padding: 10px;
             z-index: 2;
+        }
+        .container.fleet-expanded {
+            grid-template-rows: 64px minmax(160px, 0.42fr) minmax(420px, 58vh);
         }
         
         /* Header */
@@ -105,7 +108,9 @@
             animation: slideDown 0.6s ease-out;
             min-height: 60px;
             position: relative;
-            overflow: hidden;
+            /* Must stay visible so account dropdown can open below the header */
+            overflow: visible;
+            z-index: 40;
         }
         .header::before {
             content: '';
@@ -520,6 +525,9 @@
             gap: 32px;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
             margin-top: -8px;
+            position: relative;
+            /* Keep below header so account dropdown is not covered */
+            z-index: 5;
         }
         
         .race-badge {
@@ -937,12 +945,77 @@
                 var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: var(--hud-radius);
-            padding: 20px;
-            overflow-y: auto;
+            padding: 10px 14px 12px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
             animation: slideUp 0.6s ease-out 0.3s backwards;
             box-shadow: var(--panel-shadow);
             backdrop-filter: var(--glass);
             -webkit-backdrop-filter: var(--glass);
+            transition: box-shadow 0.2s ease;
+        }
+        .fleet-panel.expanded {
+            z-index: 35;
+            box-shadow: 0 -8px 40px rgba(0,0,0,0.45), 0 0 28px rgba(34,227,255,0.12);
+        }
+        .fleet-panel-chrome {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(34,227,255,0.15);
+        }
+        .fleet-panel-chrome .panel-title {
+            margin: 0;
+            padding: 0;
+            border: none;
+            font-size: 13px;
+            letter-spacing: 1.5px;
+            white-space: nowrap;
+        }
+        .fleet-panel-chrome .panel-title::after { display: none; }
+        .fleet-panel-chrome .fleet-tabs {
+            margin: 0;
+            flex: 1;
+            min-width: 220px;
+        }
+        .fleet-expand-btn {
+            margin-left: auto;
+            width: 34px;
+            height: 34px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: rgba(34,227,255,0.08);
+            color: var(--accent-primary);
+            cursor: pointer;
+            font-size: 16px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s, border-color 0.15s, transform 0.15s;
+            flex-shrink: 0;
+        }
+        .fleet-expand-btn:hover {
+            background: rgba(34,227,255,0.18);
+            border-color: var(--accent-primary);
+        }
+        .fleet-panel.expanded .fleet-expand-btn {
+            transform: rotate(180deg);
+        }
+        .fleet-panel-body {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+        .fleet-panel .build-view {
+            height: 100%;
         }
         
         @keyframes slideUp {
@@ -1592,14 +1665,29 @@
         .build-view {
             animation: fadeIn 0.3s ease-out;
         }
+
+        #shipBuildList {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 8px;
+            align-content: start;
+        }
+        #shipBuildList > div[style*="margin-bottom: 16px"],
+        #shipBuildList > div[style*="margin-bottom: 20px"] {
+            grid-column: 1 / -1;
+        }
         
         .ship-build-item {
             background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 12px;
+            padding: 10px 12px;
+            margin-bottom: 0;
             transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
         }
         
         .ship-build-item:hover {
@@ -1610,43 +1698,50 @@
         .ship-build-header {
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-bottom: 12px;
+            gap: 10px;
+            margin-bottom: 0;
         }
         
         .ship-build-icon {
-            font-size: 32px;
-            width: 48px;
-            height: 48px;
+            font-size: 24px;
+            width: 40px;
+            height: 40px;
             display: flex;
             align-items: center;
             justify-content: center;
             background: rgba(0, 217, 255, 0.1);
             border-radius: 8px;
+            flex-shrink: 0;
         }
         
         .ship-build-info {
             flex: 1;
+            min-width: 0;
         }
         
         .ship-build-name {
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 700;
             color: var(--text-primary);
-            margin-bottom: 4px;
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         
         .ship-build-stats {
-            font-size: 11px;
+            font-size: 10px;
             color: var(--text-secondary);
+            line-height: 1.35;
         }
         
         .ship-build-controls {
             display: flex;
-            gap: 12px;
+            gap: 8px;
             align-items: center;
-            padding-top: 12px;
+            padding-top: 8px;
             border-top: 1px solid var(--border-color);
+            margin-top: auto;
         }
         
         .quantity-control {
@@ -1663,8 +1758,8 @@
         }
         
         .quantity-input {
-            width: 80px;
-            padding: 8px 12px;
+            width: 56px;
+            padding: 6px 8px;
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
             border-radius: 4px;
@@ -1682,8 +1777,8 @@
         }
         
         .quantity-btn {
-            width: 32px;
-            height: 32px;
+            width: 28px;
+            height: 28px;
             background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
             border-radius: 4px;
@@ -1703,7 +1798,7 @@
         
         .build-btn {
             flex: 1;
-            padding: 10px 20px;
+            padding: 8px 12px;
             background: linear-gradient(135deg, rgba(0, 217, 255, 0.1), rgba(0, 255, 136, 0.1));
             border: 1px solid var(--accent-primary);
             border-radius: 6px;
@@ -3150,6 +3245,7 @@
         .account-dropdown {
             position: relative;
             display: inline-block;
+            z-index: 50;
         }
 
         .account-username {
@@ -3189,7 +3285,7 @@
             border-radius: 8px;
             min-width: 250px;
             box-shadow: 0 8px 32px rgba(0, 217, 255, 0.3);
-            z-index: 10000;
+            z-index: 10050;
             animation: slideDown 0.3s ease-out;
         }
 
@@ -5065,6 +5161,17 @@
             padding: 60px 16px 80px;
             animation: none;
         }
+        .fleet-panel.mobile-active {
+            display: flex !important;
+            flex-direction: column;
+        }
+        .fleet-panel.mobile-active .fleet-panel-body {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .container.fleet-expanded {
+            grid-template-rows: auto auto 1fr !important;
+        }
         .left-panel.mobile-active,
         .right-panel.mobile-active,
         .fleet-panel.mobile-active { display: block; }
@@ -5208,6 +5315,20 @@
             position: relative;
             z-index: 5;
             pointer-events: auto !important;
+        }
+        /* Header must stack above resource bar / map chrome so dropdowns are not clipped */
+        .header {
+            z-index: 40 !important;
+            overflow: visible !important;
+        }
+        .resource-subheader {
+            z-index: 5 !important;
+        }
+        .account-dropdown {
+            z-index: 50 !important;
+        }
+        .dropdown-menu {
+            z-index: 10050 !important;
         }
         .header button, .left-panel button, .right-panel button, .fleet-panel button,
         .header .header-button, .scout-btn, .action-btn, .map-btn {
@@ -5430,6 +5551,324 @@
             }
         }
     </style>
+
+    <style id="wenrexa-hologram-ui">
+        /* ===== Wenrexa Hologram Interface skin ===== */
+        :root {
+            --holo-btn: url('assets/ui/buttons/btn1-normal.png');
+            --holo-btn-hover: url('assets/ui/buttons/btn1-hover.png');
+            --holo-btn-active: url('assets/ui/buttons/btn1-active.png');
+            --holo-btn2: url('assets/ui/buttons/btn2-normal.png');
+            --holo-btn2-hover: url('assets/ui/buttons/btn2-hover.png');
+            --holo-btn2-active: url('assets/ui/buttons/btn2-active.png');
+            --holo-btn3: url('assets/ui/buttons/btn3-normal.png');
+            --holo-btn3-hover: url('assets/ui/buttons/btn3-hover.png');
+            --holo-btn-panel: url('assets/ui/buttons/btn-panel-normal.png');
+            --holo-btn-panel-hover: url('assets/ui/buttons/btn-panel-hover.png');
+            --holo-btn-sqr: url('assets/ui/buttons/btn-sqr-normal.png');
+            --holo-btn-sqr-hover: url('assets/ui/buttons/btn-sqr-hover.png');
+            --holo-icon-btn: url('assets/ui/buttons/icon-btn.png');
+            --holo-icon-btn-hover: url('assets/ui/buttons/icon-btn-hover.png');
+            --holo-frame: url('assets/ui/panels/panel-border-1.png');
+            --holo-frame-2: url('assets/ui/panels/panel-border-2.png');
+            --holo-card: url('assets/ui/panels/card-x11.png');
+            --holo-card-tall: url('assets/ui/panels/card-x1.png');
+            --holo-dropdown: url('assets/ui/panels/card-x9.png');
+            --holo-login: url('assets/ui/panels/card-x100.png');
+            --holo-cell: url('assets/ui/panels/cell.png');
+            --holo-bar-bg: url('assets/ui/bars/bar-bg.png');
+            --holo-bar-fg: url('assets/ui/bars/bar-fg.png');
+        }
+
+        .header {
+            background:
+                linear-gradient(180deg, rgba(8,18,36,0.72), rgba(4,10,22,0.88)),
+                var(--holo-btn-panel) center / 100% 100% no-repeat !important;
+            border: 1px solid transparent !important;
+            border-image: var(--holo-frame) 28 / 10px / 0 stretch !important;
+            box-shadow: 0 0 24px rgba(34,227,255,0.12), inset 0 0 30px rgba(34,227,255,0.04) !important;
+        }
+        .header::before, .header::after { opacity: 0.35; }
+
+        .resource-subheader {
+            background:
+                linear-gradient(180deg, rgba(6,14,28,0.88), rgba(4,10,22,0.94)),
+                var(--holo-bar-bg) center / 100% 100% no-repeat !important;
+            border-image: var(--holo-frame-2) 24 / 8px / 0 stretch !important;
+            border-style: solid !important;
+            border-width: 8px !important;
+            border-top-width: 0 !important;
+        }
+        .resource {
+            background: transparent !important;
+            border: none !important;
+            background-image: var(--holo-cell) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            padding: 8px 14px !important;
+            min-width: 84px;
+        }
+
+        .left-panel, .right-panel, .fleet-panel {
+            background:
+                linear-gradient(180deg, rgba(6,14,28,0.92), rgba(3,8,18,0.96)),
+                var(--holo-card) center / 100% 100% no-repeat !important;
+            border: 10px solid transparent !important;
+            border-image: var(--holo-frame) 30 fill / 10px / 0 stretch !important;
+            box-shadow: 0 0 28px rgba(34,227,255,0.1) !important;
+        }
+        .galaxy-map {
+            border: 8px solid transparent !important;
+            border-image: var(--holo-frame-2) 28 / 8px / 0 stretch !important;
+        }
+
+        .header-button {
+            background-color: transparent !important;
+            background-image: var(--holo-btn-sqr) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            border-radius: 8px !important;
+            min-width: 44px;
+            min-height: 44px;
+            box-shadow: none !important;
+        }
+        .header-button:hover {
+            background-image: var(--holo-btn-sqr-hover) !important;
+            transform: translateY(-1px);
+            filter: brightness(1.15);
+        }
+        .header-commanders-btn {
+            background-color: transparent !important;
+            background-image: var(--holo-btn-panel) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            color: var(--text-primary) !important;
+            text-shadow: 0 0 8px rgba(34,227,255,0.35);
+        }
+        .header-commanders-btn:hover {
+            background-image: var(--holo-btn-panel-hover) !important;
+            filter: brightness(1.12);
+        }
+        .race-badge {
+            background: transparent !important;
+            background-image: var(--holo-btn2) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            padding: 10px 18px !important;
+        }
+        .logout-btn {
+            background: transparent;
+            background-image: var(--holo-btn3);
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+            border: none;
+            color: var(--text-primary);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            padding: 10px 18px;
+            cursor: pointer;
+            transition: filter 0.15s ease;
+        }
+        .logout-btn:hover {
+            background-image: var(--holo-btn3-hover);
+            filter: brightness(1.15);
+        }
+
+        .account-username {
+            background-color: transparent !important;
+            background-image: var(--holo-btn) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            border-radius: 10px !important;
+            padding: 10px 18px !important;
+            text-shadow: 0 0 10px rgba(34,227,255,0.25);
+        }
+        .account-username:hover {
+            background-image: var(--holo-btn-hover) !important;
+            filter: brightness(1.1);
+        }
+        .account-username:active {
+            background-image: var(--holo-btn-active) !important;
+        }
+        .dropdown-menu {
+            background:
+                linear-gradient(180deg, rgba(4,12,24,0.94), rgba(2,8,16,0.98)),
+                var(--holo-dropdown) center / 100% 100% no-repeat !important;
+            border: 10px solid transparent !important;
+            border-image: var(--holo-frame) 28 fill / 10px / 0 stretch !important;
+            border-radius: 14px !important;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 30px rgba(34,227,255,0.18) !important;
+            overflow: hidden;
+            min-width: 270px;
+            padding: 6px 0;
+        }
+        .dropdown-item {
+            border-bottom: 1px solid rgba(34,227,255,0.12) !important;
+            background: transparent;
+        }
+        .dropdown-item:hover {
+            background:
+                linear-gradient(90deg, rgba(34,227,255,0.14), transparent 80%),
+                var(--holo-btn2-hover) left center / 100% 100% no-repeat !important;
+            color: #9af7ff !important;
+        }
+        .dropdown-item-danger:hover {
+            background:
+                linear-gradient(90deg, rgba(255,61,110,0.18), transparent 80%) !important;
+        }
+
+        .login-shell {
+            max-width: 480px;
+        }
+        .login-shell::before {
+            inset: -10px !important;
+            border: 12px solid transparent !important;
+            border-image: var(--holo-frame) 30 / 12px / 0 stretch !important;
+            border-radius: 18px !important;
+            box-shadow: 0 0 40px rgba(34,227,255,0.18);
+        }
+        .login-card {
+            background:
+                linear-gradient(180deg, rgba(4,12,24,0.9), rgba(2,8,18,0.96)),
+                var(--holo-login) center / 100% 100% no-repeat !important;
+            border: 8px solid transparent !important;
+            border-image: var(--holo-frame-2) 26 fill / 8px / 0 stretch !important;
+            box-shadow: 0 0 36px rgba(34,227,255,0.12) !important;
+        }
+        .login-tab {
+            background-color: transparent !important;
+            background-image: var(--holo-btn2) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+        }
+        .login-tab.active {
+            background-image: var(--holo-btn2-active) !important;
+            box-shadow: none !important;
+        }
+        .login-tab:hover { background-image: var(--holo-btn2-hover) !important; }
+        .login-primary-btn {
+            background-color: transparent !important;
+            background-image: var(--holo-btn-panel) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            color: #e8fbff !important;
+            text-shadow: 0 0 12px rgba(34,227,255,0.45);
+            box-shadow: none !important;
+        }
+        .login-primary-btn:hover {
+            background-image: var(--holo-btn-panel-hover) !important;
+            filter: brightness(1.12);
+        }
+
+        .account-modal-content,
+        .guild-panel-content {
+            background:
+                linear-gradient(180deg, rgba(4,12,24,0.94), rgba(2,8,16,0.98)),
+                var(--holo-card) center / 100% 100% no-repeat !important;
+            border: 12px solid transparent !important;
+            border-image: var(--holo-frame) 30 fill / 12px / 0 stretch !important;
+        }
+
+        .scout-btn, .action-btn, .map-btn, .guild-action-btn, .commander-action-btn, .market-action-btn {
+            background-color: rgba(2, 10, 22, 0.88) !important;
+            background-image: var(--holo-btn) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            box-shadow: none !important;
+            /* Hologram frames are dark; original scout/action buttons used near-black text on bright fills */
+            color: #e8fbff !important;
+            -webkit-text-fill-color: #e8fbff !important;
+            text-shadow: 0 0 10px rgba(34,227,255,0.35), 0 1px 2px rgba(0,0,0,0.85) !important;
+            font-weight: 700 !important;
+        }
+        .scout-btn:hover, .action-btn:hover, .map-btn:hover,
+        .guild-action-btn:hover, .commander-action-btn:hover, .market-action-btn:hover {
+            background-image: var(--holo-btn-hover) !important;
+            filter: brightness(1.1);
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+        }
+        .action-btn:active, .scout-btn:active {
+            background-image: var(--holo-btn-active) !important;
+        }
+        .action-btn.danger {
+            color: #ff8eaa !important;
+            -webkit-text-fill-color: #ff8eaa !important;
+        }
+        .scout-btn.bounty-nav-btn {
+            color: #ffe29a !important;
+            -webkit-text-fill-color: #ffe29a !important;
+            text-shadow: 0 0 10px rgba(255,170,0,0.45), 0 1px 2px rgba(0,0,0,0.9) !important;
+        }
+
+        .progress-bar {
+            background: transparent !important;
+            background-image: var(--holo-bar-bg) !important;
+            background-size: 100% 100% !important;
+            background-repeat: no-repeat !important;
+            border: none !important;
+            height: 10px !important;
+            border-radius: 999px !important;
+        }
+        .progress-fill {
+            background:
+                linear-gradient(90deg, rgba(34,227,255,0.95), rgba(61,255,168,0.9)),
+                var(--holo-bar-fg) center / 100% 100% no-repeat !important;
+            border-radius: 999px !important;
+        }
+
+        .planet-card, .research-item, .race-tech-item, .admin-player-card {
+            background:
+                linear-gradient(180deg, rgba(4,14,28,0.72), rgba(2,8,16,0.86)),
+                var(--holo-cell) center / 100% 100% no-repeat !important;
+            border: 1px solid rgba(34,227,255,0.18) !important;
+        }
+        .planet-card:hover, .research-item:hover {
+            border-color: rgba(34,227,255,0.45) !important;
+            box-shadow: 0 0 16px rgba(34,227,255,0.12);
+        }
+
+        .panel-title {
+            text-shadow: 0 0 14px rgba(34,227,255,0.28);
+        }
+        .chat-window {
+            border: 10px solid transparent !important;
+            border-image: var(--holo-frame) 28 fill / 10px / 0 stretch !important;
+            background:
+                linear-gradient(180deg, rgba(4,12,24,0.96), rgba(2,8,16,0.98)),
+                var(--holo-card) center / 100% 100% no-repeat !important;
+        }
+        .notification {
+            background:
+                linear-gradient(180deg, rgba(4,12,24,0.96), rgba(2,8,16,0.98)),
+                var(--holo-cell) center / 100% 100% no-repeat !important;
+            border-image: var(--holo-frame-2) 20 / 6px / 0 stretch !important;
+            border-style: solid !important;
+            border-width: 6px !important;
+        }
+
+        .account-modal-content .modal-close,
+        .holo-close-btn {
+            width: 28px; height: 28px;
+            background: var(--holo-icon-btn) center / contain no-repeat;
+            border: none; cursor: pointer;
+        }
+        .account-modal-content .modal-close:hover,
+        .holo-close-btn:hover {
+            background-image: var(--holo-icon-btn-hover);
+        }
+    </style>
+
 </head>
 <body>
     <script src="assets/js/multiplayerClient.js"></script>
@@ -5689,7 +6128,7 @@
                 </div>
                 
                 <!-- Bounties Button -->
-                <button class="scout-btn" onclick="showBountiesPanel()" style="background: linear-gradient(135deg, #ffaa00, #cc8800); margin-top: 16px; position: relative;">
+                <button class="scout-btn bounty-nav-btn" onclick="showBountiesPanel()" style="margin-top: 16px; position: relative;">
                     🎯 BOUNTIES
                     <span id="bountyNavBadge" style="
                         position: absolute;
@@ -5770,17 +6209,19 @@
         </div>
         
         <!-- Ship Build Panel -->
-        <div class="fleet-panel">
-            <div class="panel-title">🏭 Ship Production</div>
-            
-            <!-- Build Tabs -->
-            <div class="fleet-tabs" style="margin-bottom: 12px;">
-                <button class="fleet-tab active" id="fleetTabBuildShips" onclick="window.game.switchBuildTab('build')">Build Ships</button>
-                <button class="fleet-tab" id="fleetTabMyFleet" onclick="window.game.switchBuildTab('fleet')">My Fleet</button>
-                <button class="fleet-tab" id="fleetTabInfect" onclick="window.game.openInfectPanel()" style="display:none;color:#ff4444;border-color:#8b0000;">🦠 Hive Capture</button>
-                <button class="fleet-tab" onclick="window.game.switchBuildTab('maintenance')">Maintenance</button>
+        <div class="fleet-panel" id="fleetPanel">
+            <div class="fleet-panel-chrome">
+                <div class="panel-title">🏭 Ship Production</div>
+                <div class="fleet-tabs">
+                    <button class="fleet-tab active" id="fleetTabBuildShips" onclick="window.game.switchBuildTab('build')">Build Ships</button>
+                    <button class="fleet-tab" id="fleetTabMyFleet" onclick="window.game.switchBuildTab('fleet')">My Fleet</button>
+                    <button class="fleet-tab" id="fleetTabInfect" onclick="window.game.openInfectPanel()" style="display:none;color:#ff4444;border-color:#8b0000;">🦠 Hive Capture</button>
+                    <button class="fleet-tab" onclick="window.game.switchBuildTab('maintenance')">Maintenance</button>
+                </div>
+                <button type="button" class="fleet-expand-btn" id="fleetExpandBtn" onclick="toggleFleetPanelExpand()" title="Expand Ship Production">▴</button>
             </div>
-            
+
+            <div class="fleet-panel-body">
             <!-- Build View -->
             <div id="buildViewBuild" class="build-view">
                 <div id="shipBuildList"></div>
@@ -5789,9 +6230,9 @@
             <!-- Fleet View -->
             <div id="buildViewFleet" class="build-view" style="display: none;">
                 <!-- Fleet Management Header -->
-                <div style="padding: 16px; border-bottom: 1px solid var(--border-color);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                        <div style="font-size: 16px; font-weight: 700;">⚔️ Fleet Command</div>
+                <div style="padding: 8px 4px 10px; border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; flex-wrap: wrap;">
+                        <div style="font-size: 14px; font-weight: 700;">⚔️ Fleet Command</div>
                         <div style="display: flex; gap: 8px;">
                             <button onclick="window.game.selectFleetForDuel()" class="fleet-template-btn" style="padding: 8px 16px; font-size: 12px;" title="Fleet vs Fleet combat">
                                 ⚔️ Fleet Duel
@@ -5823,13 +6264,13 @@
                 </div>
                 
                 <!-- Fleet List -->
-                <div id="fleetList" style="padding: 16px;">
+                <div id="fleetList" style="padding: 8px 4px;">
                     <!-- Fleets will be dynamically generated here --></div>
                 
                 <!-- No Fleets Message -->
-                <div id="noFleetsMessage" style="padding: 40px; text-align: center; color: var(--text-secondary); display: none;">
-                    <div style="font-size: 48px; margin-bottom: 16px;">🚀</div>
-                    <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px;">No Fleets Created</div>
+                <div id="noFleetsMessage" style="padding: 24px 12px; text-align: center; color: var(--text-secondary); display: none;">
+                    <div style="font-size: 36px; margin-bottom: 10px;">🚀</div>
+                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px;">No Fleets Created</div>
                     <div style="font-size: 12px;">Create your first fleet to organize your ships into battle groups</div>
                 </div>
             </div>
@@ -5855,6 +6296,7 @@
                     </div>
                 </div>
             </div>
+            </div><!-- /.fleet-panel-body -->
         </div>
         
         <!-- Right Panel - Ship Research Center -->
@@ -7191,6 +7633,24 @@
 
             // THE VIRAL RACE SHIPS (Biological, Spore, Necrotic, Psionic)
             'The Viral Race': [
+                {
+                    name: 'Spores', class: 'Drone', icon: '\u{1F9A0}',
+                    damage: 2, damageType: 'Spore',
+                    hitPoints: 3, hull: 3, shield: 0,
+                    metalCost: 3, creditCost: 5, time: 4,
+                    image: 'Spores.png',
+                    battleSprite: 'assets/ships/viral-spores.png', spriteFacing: 'up',
+                    description: 'Disposable bio-drones grown in bulk — living spore clusters that swarm targets and soak fire for the hive.'
+                },
+                {
+                    name: 'The Vector', class: 'Scout', icon: '\u{1F9A0}',
+                    damage: 0, damageType: 'Biological',
+                    hitPoints: 2, hull: 2, shield: 0,
+                    metalCost: 5, creditCost: 10, time: 15,
+                    image: 'The-Vector.png',
+                    battleSprite: 'assets/ships/viral-vector.png', spriteFacing: 'left',
+                    description: 'A lean spore-probe that darts ahead of the hive, tasting atmospheres and seeding faint biological beacons for the swarm to follow.'
+                },
                 {
                     name: 'The Rabies', class: 'Frigate', icon: '\u{1F9A0}',
                     damage: 65, damageType: 'Biological',
@@ -12078,6 +12538,8 @@
                 'Holy Endeavour Capitol Ship': 'Holy_Endevour.jpg'
             },
             'The Viral Race': {
+                'Spores': 'Spores.png',
+                'The Vector': 'The-Vector.png',
                 'The Rabies': 'Rabies.png',
                 'The Anthrax': 'Anthrax.png',
                 'The Zika': 'Zika.png',
@@ -12132,6 +12594,8 @@ const SHIP_IMAGE_DATA = {
     'Holy Endeavour Capitol Ship': 'assets/asset_053.jpg',
   },
   'The Viral Race': {
+    'Spores':      'Spores.png',
+    'The Vector':  'The-Vector.png',
     'The Rabies':  'Rabies.png',
     'The Anthrax': 'Anthrax.png',
     'The Zika':    'Zika.png',
@@ -13813,6 +14277,8 @@ const SHIP_IMAGE_DATA = {
                         console.log('🚀 Initializing ships...');
                         this.initializeShips();
                     }
+                    // Backfill any newly added race ships (e.g. Viral Scout) without wiping owned counts
+                    if (typeof this.ensureRaceShips === 'function') this.ensureRaceShips();
                     
                     if (playerData.gameState.fleets) {
                         this.fleets = playerData.gameState.fleets;
@@ -13875,6 +14341,33 @@ const SHIP_IMAGE_DATA = {
                     if (playerData.gameState.researchQueue) {
                         this.researchQueue = playerData.gameState.researchQueue;
                         console.log(`🔬 Loaded ${this.researchQueue.length} research items`);
+                    }
+
+                    if (playerData.gameState.techBonuses) {
+                        this.techBonuses = { ...this.techBonuses, ...playerData.gameState.techBonuses };
+                    }
+                    if (playerData.gameState.technologies) {
+                        Object.entries(playerData.gameState.technologies).forEach(([id, saved]) => {
+                            if (!this.technologies[id]) return;
+                            this.technologies[id].researched = !!saved.researched;
+                            this.technologies[id].researching = !!saved.researching;
+                            this.technologies[id].progress = saved.progress || 0;
+                        });
+                    }
+                    if (playerData.gameState.techResearchQueue) {
+                        this.techResearchQueue = playerData.gameState.techResearchQueue;
+                        // Keep researching flags aligned with queue after load
+                        const activeIds = new Set(this.techResearchQueue.map(r => r.id));
+                        Object.values(this.technologies).forEach(tech => {
+                            if (activeIds.has(tech.id)) {
+                                tech.researching = !tech.researched;
+                                const item = this.techResearchQueue.find(r => r.id === tech.id);
+                                if (item) tech.progress = item.progress || 0;
+                            } else if (!tech.researched) {
+                                tech.researching = false;
+                            }
+                        });
+                        console.log(`🧬 Loaded ${this.techResearchQueue.length} tech research items`);
                     }
                     
                     if (playerData.gameState.buildQueue) {
@@ -13990,6 +14483,15 @@ const SHIP_IMAGE_DATA = {
                     ships: this.ships,
                     fleets: this.fleets,
                     researchQueue: this.researchQueue,
+                    techResearchQueue: this.techResearchQueue || [],
+                    techBonuses: this.techBonuses || {},
+                    technologies: Object.fromEntries(
+                        Object.entries(this.technologies || {}).map(([id, tech]) => [id, {
+                            researched: !!tech.researched,
+                            researching: !!tech.researching,
+                            progress: tech.progress || 0
+                        }])
+                    ),
                     buildQueue: this.buildQueue,
                     clusters: this.clusters,
                     guildId: this.guildId,
@@ -14877,6 +15379,34 @@ const SHIP_IMAGE_DATA = {
                         // Start with 5 scouts so a 1× scout mission is available immediately
                         count: ship.class === 'Drone' ? 5 : (ship.class === 'Scout' ? 5 : 0),
                         researched: ship.class === 'Drone' || ship.class === 'Scout'
+                    };
+                });
+            }
+
+            // Merge any SHIP_CLASSES entries missing from a saved game (keeps existing counts).
+            // New starter Scout/Drone hulls get the usual free researched starter allotment.
+            ensureRaceShips() {
+                const raceName = this.selectedRace?.name;
+                const raceShips = SHIP_CLASSES[raceName] || [];
+                if (!this.ships) this.ships = {};
+                raceShips.forEach(ship => {
+                    const existing = this.ships[ship.name];
+                    if (!existing) {
+                        const starter = ship.class === 'Drone' || ship.class === 'Scout';
+                        this.ships[ship.name] = {
+                            ...ship,
+                            count: starter ? 5 : 0,
+                            researched: starter
+                        };
+                        return;
+                    }
+                    // Refresh static defs from catalog while preserving progress fields
+                    this.ships[ship.name] = {
+                        ...ship,
+                        count: existing.count || 0,
+                        researched: !!existing.researched,
+                        reverseEngineered: existing.reverseEngineered,
+                        currentShield: existing.currentShield
                     };
                 });
             }
@@ -19480,6 +20010,7 @@ const SHIP_IMAGE_DATA = {
                 setTimeout(() => {
                     if (isVictory) {
                         // Victory — apply pre-computed losses
+                        const prevOwner = target.owner;
                         target.owner = this.selectedRace.name;
                         target.buildings = {};
 
@@ -19526,8 +20057,8 @@ const SHIP_IMAGE_DATA = {
 
                         // Record to battle history
                         this._recordBattle({
-                            outcome: 'victory', target: target.name, targetOwner: target.owner || 'Unclaimed',
-                            attackPower, defense, attackForce, attackerLosses, defenderDestroyed,
+                            outcome: 'victory', target: target.name, targetOwner: prevOwner || 'Unclaimed',
+                            attackPower: effectiveAttackPower, defense, attackForce, attackerLosses, defenderDestroyed,
                             infectResults, timestamp: Date.now(),
                             defenderSnapshot: JSON.parse(JSON.stringify(target.botGarrison || {})),
                         });
@@ -23176,44 +23707,47 @@ const SHIP_IMAGE_DATA = {
             
             updateResearch() {
               try {
-                // Process ship research queue
-                if (this.researchQueue.length === 0) return;
-                
-                const shipResearchTick = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
-                this.researchQueue = this.researchQueue.map(research => {
-                    research.timeRemaining -= shipResearchTick;
-                    
-                    if (research.timeRemaining <= 0) {
-                        // Mark ship as researched
-                        if (this.ships[research.name]) {
-                            this.ships[research.name].researched = true;
-                            this.ships[research.name].count += 1;
-                            // [removed debug log]
+                // Process ship research queue (do not early-return — tech queue must still tick)
+                if (this.researchQueue && this.researchQueue.length > 0) {
+                    const shipResearchTick = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
+                    this.researchQueue = this.researchQueue.map(research => {
+                        research.timeRemaining -= shipResearchTick;
+                        
+                        if (research.timeRemaining <= 0) {
+                            // Mark ship as researched
+                            if (this.ships[research.name]) {
+                                this.ships[research.name].researched = true;
+                                this.ships[research.name].count += 1;
+                            }
+                            this.showNotification(`✅ ${research.name} research complete! +1 ship added to fleet`);
+                            this.renderShips();
+                            this.renderShipBuildList();
+                            this.updateResearchStats();
+                            return null;
                         }
-                        this.showNotification(`✅ ${research.name} research complete! +1 ship added to fleet`);
-                        this.renderShips();
-                        this.renderShipBuildList();
-                        this.updateResearchStats();
-                        return null;
-                    }
-                    
-                    return research;
-                }).filter(r => r !== null);
+                        
+                        return research;
+                    }).filter(r => r !== null);
+                }
                 
                 // Process technology research queue
-                if (this.techResearchQueue.length > 0) {
+                if (this.techResearchQueue && this.techResearchQueue.length > 0) {
                     const currentTech = this.techResearchQueue[0];
                     const tech = this.technologies[currentTech.id];
-                    
-                    const techTick = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
-                    currentTech.progress = (currentTech.progress || 0) + techTick;
-                    tech.progress = currentTech.progress;
-                    
-                    if (currentTech.progress >= currentTech.time) {
-                        this.completeTechResearch(currentTech.id);
+                    if (tech) {
+                        tech.researching = true;
+                        const techTick = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
+                        currentTech.progress = (currentTech.progress || 0) + techTick;
+                        tech.progress = currentTech.progress;
+                        
+                        if (currentTech.progress >= currentTech.time) {
+                            this.completeTechResearch(currentTech.id);
+                        } else if (document.getElementById('techTreeModal')?.style.display === 'block') {
+                            // Keep progress bar live while the modal is open
+                            this.renderTechTree();
+                            this.renderTechBonuses();
+                        }
                     }
-                    
-                    this.renderTechTree();
                 }
                 
                 this.updateResearchQueue();
@@ -23280,6 +23814,16 @@ const SHIP_IMAGE_DATA = {
                     this.renderShipBuildList();
                 } else if (tab === 'fleet') {
                     this.renderShips();
+                    // Fleet lists are dense — open expanded view so users do not hunt below the fold
+                    const panel = document.getElementById('fleetPanel');
+                    const container = document.querySelector('.container');
+                    if (panel && container && !panel.classList.contains('expanded')) {
+                        panel.classList.add('expanded');
+                        container.classList.add('fleet-expanded');
+                        const btn = document.getElementById('fleetExpandBtn');
+                        if (btn) { btn.title = 'Collapse Ship Production'; btn.setAttribute('aria-expanded', 'true'); }
+                        try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+                    }
                 } else if (tab === 'maintenance') {
                     this.renderMaintenance();
                 }
@@ -24442,7 +24986,7 @@ const SHIP_IMAGE_DATA = {
                     const globalHE3Modifier = 0.7 * 0.65 * 0.40;    // = 0.182 (81.8% total reduction)
                     const globalFoodModifier = 0.65 * 0.40;         // = 0.26 (74% total reduction)
                     
-                    // Siege drain — Pandemic Protocol (Viral Race) cuts to 0%; default cuts to 40%
+                    // Siege drain — Pandemic Protocol (Viral Race) cuts to 0%; Latent Infection to 20%; default 40%
                     const siegeActive = planet.siegedBy && planet.siegedUntil > Date.now();
                     const siegerHasPandemic = siegeActive && window.game?.hasRaceTech('pandemic_protocol') &&
                         window.game?.selectedRace?.name === planet.siegedBy;
@@ -24602,7 +25146,7 @@ const SHIP_IMAGE_DATA = {
                     }
                 });
                 
-                // Consciousness Expansion (The Ascended) — +60% research point generation
+                // Consciousness Expansion / Neural Lattice / Transcendence — RP multipliers
                 let rpMult = 1.0;
                 if (this.hasRaceTech('consciousness_expansion')) rpMult *= 1.60;
                 if (this.hasRaceTech('neural_lattice')) rpMult *= 1.35;
@@ -24670,9 +25214,8 @@ const SHIP_IMAGE_DATA = {
                     });
                 }
 
-                // Adaptive Mutation (Viral Race) — pop bonus per captured planet
-                if (this.hasRaceTech('adaptive_mutation') && !this._adaptiveMutationApplied) {
-                    this._adaptiveMutationApplied = true;
+                // Adaptive Mutation (Viral Race) — refresh pop bonus from owned planet count
+                if (this.hasRaceTech('adaptive_mutation')) {
                     const capturedCount = this.planets.filter(p => this._isMyPlanet(p)).length;
                     this._adaptiveMutationBonus = capturedCount * 0.01;
                 }
@@ -24742,6 +25285,17 @@ const SHIP_IMAGE_DATA = {
             updateUI() {
                 this.updateResources();
                 if (typeof this.refreshScoutPanel === 'function') this.refreshScoutPanel();
+            }
+
+            // Used by tech research / inventory / crafting paths. Was previously
+            // called but never defined, which aborted startTechResearch() after
+            // deducting costs / setting researching=true — so the UI never showed
+            // IN PROGRESS and the next click looked like "requirements not met".
+            updateDisplay() {
+                this.updateResources();
+                if (typeof this.refreshScoutPanel === 'function') this.refreshScoutPanel();
+                if (typeof this.updateResearchQueue === 'function') this.updateResearchQueue();
+                if (typeof this.renderTechBonuses === 'function') this.renderTechBonuses();
             }
             
             // Coin Pack Methods
@@ -25925,40 +26479,46 @@ const SHIP_IMAGE_DATA = {
                 this.renderTechTree();
             }
             
-            canResearchTech(techId) {
+            whyCannotResearchTech(techId) {
                 const tech = this.technologies[techId];
-                
-                if (tech.researched || tech.researching) return false;
-                
-                // Check mutually exclusive technologies
+                if (!tech) return 'Unknown technology';
+                if (tech.researched) return `${tech.name} is already complete`;
+                if (tech.researching || (this.techResearchQueue || []).some(r => r.id === techId)) {
+                    return `${tech.name} is already researching`;
+                }
+                if ((this.techResearchQueue || []).length > 0) {
+                    const active = this.technologies[this.techResearchQueue[0].id];
+                    return `Finish ${active?.name || 'current research'} first`;
+                }
                 if (tech.mutuallyExclusiveWith) {
                     for (const exclusiveTech of tech.mutuallyExclusiveWith) {
                         if (this.technologies[exclusiveTech]?.researched) {
-                            return false; // Can't research if exclusive tech is already researched
+                            return `${this.technologies[exclusiveTech].name} already chosen`;
                         }
                     }
                 }
-                
-                // Check prerequisites
-                for (const prereq of tech.prerequisites) {
-                    if (!this.technologies[prereq].researched) {
-                        return false;
-                    }
+                for (const prereq of (tech.prerequisites || [])) {
+                    const req = this.technologies[prereq];
+                    if (!req?.researched) return `Requires ${req?.name || prereq}`;
                 }
-                
-                // Check resources
-                if (this.resources.credits < tech.cost.credits) return false;
-                if (tech.cost.metal && this.resources.metal < tech.cost.metal) return false;
-                if (tech.cost.he3 && this.resources.he3 < tech.cost.he3) return false;
-                if (tech.cost.food && this.resources.food < tech.cost.food) return false;
-                if (this.resources.researchPoints < tech.cost.researchPoints) return false;
-                
-                return true;
+                const need = [];
+                if ((this.resources.credits || 0) < (tech.cost.credits || 0)) need.push('credits');
+                if (tech.cost.metal && (this.resources.metal || 0) < tech.cost.metal) need.push('metal');
+                if (tech.cost.he3 && (this.resources.he3 || 0) < tech.cost.he3) need.push('He-3');
+                if (tech.cost.food && (this.resources.food || 0) < tech.cost.food) need.push('food');
+                if ((this.resources.researchPoints || 0) < (tech.cost.researchPoints || 0)) need.push('research points');
+                if (need.length) return `Need more ${need.join(', ')}`;
+                return null;
+            }
+
+            canResearchTech(techId) {
+                return !this.whyCannotResearchTech(techId);
             }
             
             startTechResearch(techId) {
-                if (!this.canResearchTech(techId)) {
-                    this.showNotification('⚠️ Cannot research: requirements not met');
+                const blocked = this.whyCannotResearchTech(techId);
+                if (blocked) {
+                    this.showNotification(`⚠️ Cannot research: ${blocked}`);
                     return;
                 }
                 
@@ -25973,6 +26533,8 @@ const SHIP_IMAGE_DATA = {
                 
                 // Add to queue
                 tech.researching = true;
+                tech.progress = 0;
+                if (!this.techResearchQueue) this.techResearchQueue = [];
                 this.techResearchQueue.push({
                     id: techId,
                     progress: 0,
@@ -25982,9 +26544,12 @@ const SHIP_IMAGE_DATA = {
                 this.showNotification(`🔬 Research Started: ${tech.name}`);
                 if (window.tutorialManager) window.tutorialManager.completeAction('research');
                 this.updateDisplay();
-                // Force immediate re-render — switch to available tab then back to ensure grid refreshes
                 this.renderTechTree();
-                requestAnimationFrame(() => this.renderTechTree());
+                this.renderTechBonuses();
+                requestAnimationFrame(() => {
+                    this.renderTechTree();
+                    this.renderTechBonuses();
+                });
                 this.saveGameState();
             }
             
@@ -26018,6 +26583,20 @@ const SHIP_IMAGE_DATA = {
             renderTechTree() {
                 const grid = document.getElementById('techGrid');
                 if (!grid) return;
+
+                // Keep card state aligned with the live tech queue
+                const activeIds = new Set((this.techResearchQueue || []).map(r => r.id));
+                Object.values(this.technologies || {}).forEach(tech => {
+                    if (tech.researched) {
+                        tech.researching = false;
+                    } else {
+                        tech.researching = activeIds.has(tech.id);
+                        if (tech.researching) {
+                            const item = this.techResearchQueue.find(r => r.id === tech.id);
+                            if (item) tech.progress = item.progress || 0;
+                        }
+                    }
+                });
                 
                 const techs = Object.values(this.technologies).filter(tech => {
                     if (this.currentTechCategory === 'all') return true;
@@ -26054,9 +26633,16 @@ const SHIP_IMAGE_DATA = {
                         }
                     }
                     
+                    const queueItem = (this.techResearchQueue || []).find(r => r.id === tech.id);
+                    const progressPct = tech.researching
+                        ? Math.max(0, Math.min(100, (((queueItem?.progress ?? tech.progress) || 0) / (tech.time || 1)) * 100))
+                        : 0;
                     const progressBar = tech.researching
                         ? `<div style="background: var(--bg-primary); height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 12px;">
-                            <div style="background: var(--accent-warning); height: 100%; width: ${(tech.progress / tech.time) * 100}%;"></div>
+                            <div style="background: var(--accent-warning); height: 100%; width: ${progressPct}%;"></div>
+                           </div>
+                           <div style="text-align:center;font-size:11px;color:var(--accent-warning);margin-bottom:10px;font-weight:700;">
+                             ${Math.ceil(Math.max(0, (tech.time || 0) - ((queueItem?.progress ?? tech.progress) || 0)))}s remaining
                            </div>`
                         : '';
                     
@@ -26089,13 +26675,6 @@ const SHIP_IMAGE_DATA = {
                 const bonusList = document.getElementById('techBonusList');
                 if (!bonusList) return;
                 
-                const activeBonuses = Object.entries(this.techBonuses).filter(([key, value]) => value > 0);
-                
-                if (activeBonuses.length === 0) {
-                    bonusList.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px;">No active bonuses</div>';
-                    return;
-                }
-                
                 const labels = {
                     metal: '⛏️ Metal Production',
                     he3: '⚡ He-3 Production',
@@ -26108,13 +26687,45 @@ const SHIP_IMAGE_DATA = {
                     planetDefense: '🏰 Planet Defense',
                     research: '🔬 Research Speed'
                 };
+
+                let html = '';
+
+                // In-progress tech research (was invisible except on individual cards)
+                const queue = this.techResearchQueue || [];
+                if (queue.length > 0) {
+                    html += queue.map(item => {
+                        const tech = this.technologies[item.id];
+                        if (!tech) return '';
+                        const progress = Math.max(0, Math.min(100, ((item.progress || 0) / (item.time || tech.time || 1)) * 100));
+                        const remaining = Math.max(0, (item.time || tech.time || 0) - (item.progress || 0));
+                        return `
+                            <div class="bonus-item" style="flex-direction:column;align-items:stretch;gap:6px;margin-bottom:10px;">
+                                <div style="display:flex;justify-content:space-between;gap:8px;">
+                                    <div class="bonus-label">⏳ Researching: ${tech.icon || ''} ${tech.name}</div>
+                                    <div class="bonus-value" style="color:var(--accent-warning);">${Math.ceil(remaining)}s</div>
+                                </div>
+                                <div style="background:var(--bg-primary);height:6px;border-radius:3px;overflow:hidden;">
+                                    <div style="background:linear-gradient(90deg,var(--accent-warning),var(--accent-primary));height:100%;width:${progress}%;"></div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('');
+                }
                 
-                bonusList.innerHTML = activeBonuses.map(([key, value]) => `
+                const activeBonuses = Object.entries(this.techBonuses || {}).filter(([key, value]) => value > 0);
+                if (activeBonuses.length === 0 && queue.length === 0) {
+                    bonusList.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px;">No active bonuses</div>';
+                    return;
+                }
+
+                html += activeBonuses.map(([key, value]) => `
                     <div class="bonus-item">
                         <div class="bonus-label">${labels[key] || key}</div>
                         <div class="bonus-value">+${value}%</div>
                     </div>
                 `).join('');
+
+                bonusList.innerHTML = html;
             }
             
             // ===== INVENTORY SYSTEM METHODS =====
@@ -27340,15 +27951,46 @@ const SHIP_IMAGE_DATA = {
         
         function toggleAccountDropdown() {
             const dropdown = document.getElementById('dropdownMenu');
-            dropdown.classList.toggle('show');
+            const header = document.querySelector('.header');
+            const opening = dropdown && !dropdown.classList.contains('show');
+            if (dropdown) dropdown.classList.toggle('show');
+            if (header) {
+                header.style.zIndex = opening ? '120' : '';
+                header.classList.toggle('account-menu-open', !!opening);
+            }
         }
+
+        function toggleFleetPanelExpand() {
+            const panel = document.getElementById('fleetPanel') || document.querySelector('.fleet-panel');
+            const container = document.querySelector('.container');
+            const btn = document.getElementById('fleetExpandBtn');
+            if (!panel || !container) return;
+            const expanded = panel.classList.toggle('expanded');
+            container.classList.toggle('fleet-expanded', expanded);
+            if (btn) {
+                btn.title = expanded ? 'Collapse Ship Production' : 'Expand Ship Production';
+                btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            }
+            // Keep map canvas in sync with the new grid height
+            try {
+                if (window.game && typeof window.game.resizeMap === 'function') window.game.resizeMap();
+                else if (window.game && typeof window.game.renderMap === 'function') window.game.renderMap();
+                window.dispatchEvent(new Event('resize'));
+            } catch (e) { /* ignore */ }
+        }
+        window.toggleFleetPanelExpand = toggleFleetPanelExpand;
         
         // Close dropdown when clicking outside
         window.addEventListener('click', function(event) {
             if (!event.target.closest('.account-dropdown')) {
                 const dropdown = document.getElementById('dropdownMenu');
+                const header = document.querySelector('.header');
                 if (dropdown) {
                     dropdown.classList.remove('show');
+                }
+                if (header) {
+                    header.style.zIndex = '';
+                    header.classList.remove('account-menu-open');
                 }
             }
         });
