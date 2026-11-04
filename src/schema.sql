@@ -85,3 +85,11 @@ CREATE TABLE IF NOT EXISTS boss_instances (
     started_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     defeated_at  TIMESTAMPTZ
 );
+
+-- Shared world documents (market, guilds, chat) — not editable via browser localStorage
+CREATE TABLE IF NOT EXISTS world_kv (
+    key         TEXT PRIMARY KEY,
+    value       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by  UUID REFERENCES players(id)
+);

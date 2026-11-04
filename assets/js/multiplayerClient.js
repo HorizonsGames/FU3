@@ -79,11 +79,84 @@ class MPClient {
 
     // ── REST: persistent state (replaces localStorage save/load) ───────
     async saveState(state) {
+        // Server ignores resources/inventory/HC in the blob (economyLocked).
         return this._put('/api/state', { state });
     }
 
     async loadState() {
-        return this._get('/api/state'); // -> { state, horizonCoins }
+        return this._get('/api/state'); // -> { state, horizonCoins, resources, inventory }
+    }
+
+    // ── REST: authoritative economy (cannot invent via PUT /state) ────
+    async getEconomy() {
+        return this._get('/api/economy');
+    }
+
+    async economyCollect() {
+        return this._post('/api/economy/collect', {});
+    }
+
+    async economySpend(payload) {
+        return this._post('/api/economy/spend', payload);
+    }
+
+    async economyGrant(payload) {
+        return this._post('/api/economy/grant', payload);
+    }
+
+    // ── REST: shared world blobs (read; fleet markers still writable) ─
+    async getWorld(key) {
+        return this._get(`/api/world/${encodeURIComponent(key)}`);
+    }
+
+    async putWorld(key, value) {
+        return this._put(`/api/world/${encodeURIComponent(key)}`, { value });
+    }
+
+    // ── REST: market (action-validated — cannot spoof listings) ───────
+    async getMarket() {
+        return this._get('/api/market');
+    }
+
+    async marketListResource(resourceType, quantity, pricePerUnit) {
+        return this._post('/api/market/list-resource', { resourceType, quantity, pricePerUnit });
+    }
+
+    async marketListArtifact(payload) {
+        return this._post('/api/market/list-artifact', payload);
+    }
+
+    async marketBuy(listingId) {
+        return this._post('/api/market/buy', { listingId });
+    }
+
+    async marketCancel(listingId) {
+        return this._post('/api/market/cancel', { listingId });
+    }
+
+    // ── REST: chat (append-only) ──────────────────────────────────────
+    async getChat() {
+        return this._get('/api/chat');
+    }
+
+    async postChat(text) {
+        return this._post('/api/chat', { text });
+    }
+
+    async getChatEvents() {
+        return this._get('/api/chat/events');
+    }
+
+    async postChatEvent(message, type = 'info') {
+        return this._post('/api/chat/events', { message, type });
+    }
+
+    async getGuildChat() {
+        return this._get('/api/chat/guild');
+    }
+
+    async postGuildChat(text) {
+        return this._post('/api/chat/guild', { text });
     }
 
     // ── REST: guilds ─────────────────────────────────────────────────

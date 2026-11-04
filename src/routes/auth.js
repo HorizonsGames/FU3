@@ -91,13 +91,21 @@ router.get('/me', auth.requireAuth, (req, res) => {
 });
 
 function publicPlayer(row) {
+    const state = (row.state && typeof row.state === 'object') ? { ...row.state } : {};
+    const hcCol = row.horizon_coins != null ? Number(row.horizon_coins) : NaN;
+    const hcState = state.horizonCoins != null ? Number(state.horizonCoins) : NaN;
+    const horizonCoins = Number.isFinite(hcCol)
+        ? Math.max(0, Math.floor(hcCol))
+        : (Number.isFinite(hcState) ? Math.max(0, Math.floor(hcState)) : 500);
+    state.horizonCoins = horizonCoins;
     return {
         id: row.id,
         username: row.username,
         email: row.email,
         race: row.race,
         accountType: row.account_type || 'player',
-        state: row.state,
+        state,
+        horizonCoins,
         createdAt: row.created_at,
     };
 }

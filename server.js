@@ -10,6 +10,10 @@ const stateRoutes = require('./src/routes/state');
 const guildRoutes = require('./src/routes/guild');
 const bossRoutes = require('./src/routes/boss');
 const ultimate = require('./src/routes/ultimate');
+const worldRoutes = require('./src/routes/world');
+const marketRoutes = require('./src/routes/market');
+const chatRoutes = require('./src/routes/chat');
+const economyRoutes = require('./src/routes/economy');
 const { createHub, broadcastGalaxy } = require('./src/ws/hub');
 
 const app = express();
@@ -34,6 +38,10 @@ app.use('/api', stateRoutes);
 app.use('/api', guildRoutes);
 app.use('/api', bossRoutes);
 app.use('/api', ultimate.router);
+app.use('/api', worldRoutes);
+app.use('/api', marketRoutes);
+app.use('/api', chatRoutes);
+app.use('/api', economyRoutes);
 
 // Serve the game client (index.html, assets/, ship art, music, etc.) from this
 // same app/process/port — one Heroku deploy serves both the game and the API,

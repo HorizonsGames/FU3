@@ -2,7 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#030712">
+    <style id="fu-perf-overrides">
+      .header-button, .mobile-nav-btn, button, .map-btn {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .space-bg, .galaxy-map::after { animation: none !important; }
+      }
+    </style>
     <title>FRACTURED UNIVERSE - Space RTS MMO</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&family=Oxanium:wght@400;600;700&display=swap');
@@ -852,6 +862,7 @@
             box-shadow: var(--panel-shadow), inset 0 0 80px rgba(34,227,255,0.04);
         }
         .galaxy-map:active { cursor: grabbing; }
+        .galaxy-map { touch-action: none; }
         
         /* Star field layers — ice/cyan nebula (no purple cast) */
         .galaxy-map::before {
@@ -929,7 +940,9 @@
             font-size: 18px;
             cursor: pointer;
             backdrop-filter: blur(10px);
-            transition: all 0.2s;
+            transition: background 0.15s, transform 0.15s;
+            will-change: transform;
+            touch-action: manipulation;
         }
         
         .map-btn:hover {
@@ -5112,6 +5125,23 @@
     @media (max-width: 900px) {
         body { overflow: hidden; }
 
+        /* Kill continuous GPU decorations — free cycles for map + UI */
+        .space-bg {
+            animation: none !important;
+            opacity: 0.35;
+            background-size: 100% 100%;
+        }
+        .galaxy-map::after {
+            animation: none !important;
+            opacity: 0.25;
+        }
+        .map-btn { backdrop-filter: none; }
+        .galaxy-map { touch-action: none; }
+        .left-panel, .right-panel, .fleet-panel {
+            content-visibility: auto;
+            contain: layout style paint;
+        }
+
         .container {
             grid-template-columns: 1fr;
             grid-template-rows: auto auto 1fr;
@@ -7154,6 +7184,14 @@
             ? new MPClient(MP_CONFIG.serverUrl)
             : null;
         window.MP = MP; // used by battle-room wiring below and by animateBattle
+        // Flush empire/HC/inventory to the server when the tab closes or refreshes
+        window.addEventListener('beforeunload', () => {
+            try {
+                if (window.auth && typeof window.auth.saveGameState === 'function') window.auth.saveGameState();
+                else if (window.game && typeof window.game.saveGameState === 'function') window.game.saveGameState();
+            } catch (e) { /* ignore */ }
+        });
+
         let mpConnected = false;
         // NOTE: MP.connect() is only called after a successful MP login/register
         // (see handleLogin/handleRegister below) — it requires a session token,
@@ -7167,6 +7205,12 @@
                 if (window.game && typeof window.game.bindUltimateWeaponListeners === 'function') {
                     window.game.bindUltimateWeaponListeners();
                 }
+                // Pull shared market/guild/chat documents from the server (anti-cheat)
+                try {
+                    if (typeof marketManager !== 'undefined' && marketManager.loadMarket) marketManager.loadMarket();
+                    if (typeof guildManager !== 'undefined' && guildManager.loadGuilds) guildManager.loadGuilds();
+                    if (typeof chatManager !== 'undefined' && chatManager._loadChatFromServer) chatManager._loadChatFromServer();
+                } catch (e) { console.warn('[MP] world hydrate failed', e); }
             } catch (e) { mpConnected = false; console.warn('[MP] live socket unavailable:', e.message); }
         }
 
@@ -9025,8 +9069,23 @@
                 const randomCommander = availableCommanders[Math.floor(Math.random() * availableCommanders.length)];
                 
                 // Deduct coins
-                this.game.horizonCoins -= rarityInfo.horizonCoinCost;
-                console.log('💎 Coins after purchase:', this.game.horizonCoins);
+                const _finishGachaSpend = () => {
+                    console.log('💎 Coins after purchase:', this.game.horizonCoins);
+                    if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+                };
+                if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
+                    serverEconomySpend({ horizonCoins: rarityInfo.horizonCoinCost }).then((r) => {
+                        if (!r.ok) {
+                            alert(r.error || 'Insufficient Horizon Coins on server');
+                            return;
+                        }
+                        _finishGachaSpend();
+                    });
+                    // Commander roll continues below using local state; HC already applied from server
+                } else {
+                    this.game.horizonCoins -= rarityInfo.horizonCoinCost;
+                    _finishGachaSpend();
+                }
                 
                 // Show reveal modal with animation
                 this.revealCommander(randomCommander);
@@ -9040,6 +9099,7 @@
                 
                 this.game.commanders.push(newCommander);
                 console.log('📦 Commander added to collection:', newCommander.name);
+                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
                 
                 if (window.chatManager) {
                     chatManager.addMessage('SYSTEM', `✨ GACHA PULL! You obtained ${randomCommander.name} (${rarity})!`, 'system');
@@ -9377,6 +9437,7 @@
                 }
                 
                 this.game.horizonCoins -= rarityInfo.horizonCoinCost;
+                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
                 
                 const newCommander = {
                     ...commanderTemplate,
@@ -9385,6 +9446,7 @@
                 };
                 
                 this.game.commanders.push(newCommander);
+                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
                 
                 if (window.chatManager) {
                     chatManager.addMessage('SYSTEM', `Acquired ${commanderTemplate.name}!`, 'system');
@@ -9490,6 +9552,7 @@
                     };
                     
                     this.game.commanders.push(upgradedCommander);
+                    if (this.game && typeof this.game.saveGameState === 'function') this.game.saveGameState();
                     
                     if (window.chatManager) {
                         chatManager.addMessage('SYSTEM', `${upgradedCommander.name} upgraded to ${upgradedCommander.stars} stars!`, 'system');
@@ -9607,6 +9670,7 @@
                     };
                     
                     this.game.commanders.push(newCommander);
+                    if (this.game && typeof this.game.saveGameState === 'function') this.game.saveGameState();
                     
                     if (window.chatManager) {
                         chatManager.addMessage('SYSTEM', `🎉 COMMANDER FOUND! You discovered ${commander.name} (${COMMANDER_RARITIES[commander.rarity].name})!`, 'system');
@@ -9640,28 +9704,66 @@
             }
             
             initializeChat() {
-                // Load chat history from localStorage
-                const stored = localStorage.getItem('stellarCommandChat');
-                if (stored) {
-                    this.messages = JSON.parse(stored);
-                    // Keep only last 100 messages
-                    if (this.messages.length > 100) {
-                        this.messages = this.messages.slice(-100);
-                    }
+                this._chatUpdatedAt = null;
+                this._eventsUpdatedAt = null;
+                // Prefer server world store; migrate legacy local cache once
+                if (window.MP && window.MP.token) {
+                    this._loadChatFromServer();
+                } else {
+                    try {
+                        const stored = localStorage.getItem('stellarCommandChat');
+                        if (stored) {
+                            this.messages = JSON.parse(stored);
+                            if (this.messages.length > 100) this.messages = this.messages.slice(-100);
+                        }
+                        const storedEvents = localStorage.getItem('stellarCommandEventLog');
+                        if (storedEvents) {
+                            this.eventLog = JSON.parse(storedEvents);
+                            if (this.eventLog.length > 200) this.eventLog = this.eventLog.slice(-200);
+                        }
+                    } catch (e) {}
                 }
-                
-                // Load event log
-                const storedEvents = localStorage.getItem('stellarCommandEventLog');
-                if (storedEvents) {
-                    this.eventLog = JSON.parse(storedEvents);
-                    // Keep only last 200 events
-                    if (this.eventLog.length > 200) {
-                        this.eventLog = this.eventLog.slice(-200);
+                this.pollInterval = setInterval(() => {
+                    const chatWindow = document.getElementById('chatWindow');
+                    const open = chatWindow && chatWindow.style.display !== 'none' && !this.isMinimized;
+                    // Poll less when chat is closed — still catch up, without burning battery
+                    const now = Date.now();
+                    const minGap = open ? 2500 : 8000;
+                    if (this._lastChatPollAt && now - this._lastChatPollAt < minGap) return;
+                    this._lastChatPollAt = now;
+                    this.checkForNewMessages();
+                }, 2000);
+            }
+
+            async _loadChatFromServer() {
+                if (!window.MP || !window.MP.token) return;
+                try {
+                    if (window.MP.getChat) {
+                        const chat = await window.MP.getChat();
+                        if (chat && Array.isArray(chat.messages)) {
+                            this.messages = chat.messages.slice(-200);
+                            this._chatUpdatedAt = chat.updatedAt;
+                        }
                     }
+                    if (window.MP.getChatEvents) {
+                        const ev = await window.MP.getChatEvents();
+                        if (ev && Array.isArray(ev.events)) {
+                            this.eventLog = ev.events.slice(-200);
+                            this._eventsUpdatedAt = ev.updatedAt;
+                        }
+                    }
+                    if (window.MP.getGuildChat) {
+                        const g = await window.MP.getGuildChat();
+                        if (g && Array.isArray(g.messages)) this._guildChatCache = g.messages;
+                    }
+                    try {
+                        localStorage.removeItem('stellarCommandChat');
+                        localStorage.removeItem('stellarCommandEventLog');
+                        localStorage.removeItem('stellarCommandChatUpdate');
+                    } catch (e) {}
+                } catch (e) {
+                    console.warn('[chat] server load failed', e.message || e);
                 }
-                
-                // Poll for new messages every 2 seconds (simulates real-time)
-                this.pollInterval = setInterval(() => this.checkForNewMessages(), 2000);
             }
             
             logEvent(message, type = 'info') {
@@ -9673,16 +9775,19 @@
                 };
                 
                 this.eventLog.push(event);
-                
-                // Keep only last 200 events
                 if (this.eventLog.length > 200) {
                     this.eventLog = this.eventLog.slice(-200);
                 }
+
+                if (window.MP && window.MP.token && window.MP.postChatEvent) {
+                    window.MP.postChatEvent(message, type).then((res) => {
+                        if (res && Array.isArray(res.events)) this.eventLog = res.events;
+                        if (res && res.updatedAt) this._eventsUpdatedAt = res.updatedAt;
+                    }).catch((e) => console.warn('[chat] event post failed', e.message || e));
+                } else {
+                    this._saveEventLog();
+                }
                 
-                // Save to localStorage
-                localStorage.setItem('stellarCommandEventLog', JSON.stringify(this.eventLog));
-                
-                // Update view if event log is open
                 if (this.currentTab === 'events') {
                     this.renderEventLog();
                 }
@@ -9769,7 +9874,17 @@
 
             loadGuildMessages() {
                 const guildId = window.game && window.game.guildId;
-                if (!guildId) return [];
+                if (!guildId) return this._guildChatCache || [];
+                if (window.MP && window.MP.token && window.MP.getGuildChat) {
+                    if (!this._guildChatFetching) {
+                        this._guildChatFetching = true;
+                        window.MP.getGuildChat().then((res) => {
+                            if (res && Array.isArray(res.messages)) this._guildChatCache = res.messages;
+                            this._guildChatUpdatedAt = res && res.updatedAt;
+                        }).catch(() => {}).finally(() => { this._guildChatFetching = false; });
+                    }
+                    return this._guildChatCache || [];
+                }
                 try {
                     const key = `fu_guildChat_${guildId}`;
                     const stored = localStorage.getItem(key);
@@ -9780,9 +9895,13 @@
             saveGuildMessages(msgs) {
                 const guildId = window.game && window.game.guildId;
                 if (!guildId) return;
+                const trimmed = (msgs || []).slice(-200);
+                this._guildChatCache = trimmed;
+                // Online guild chat posts go through postGuildChat (append-only)
+                if (window.MP && window.MP.token) return;
                 try {
                     const key = `fu_guildChat_${guildId}`;
-                    localStorage.setItem(key, JSON.stringify(msgs.slice(-200)));
+                    localStorage.setItem(key, JSON.stringify(trimmed));
                     localStorage.setItem(`fu_guildChatUpdate_${guildId}`, Date.now().toString());
                 } catch(e) {}
             }
@@ -9848,7 +9967,7 @@
                 setTimeout(() => { content.scrollTop = content.scrollHeight; }, 50);
             }
 
-            sendGuildMessage() {
+            async sendGuildMessage() {
                 const guildId = window.game && window.game.guildId;
                 if (!guildId) {
                     if (window.game) window.game.showNotification('⚠️ You must be in a guild to send guild messages!');
@@ -9858,6 +9977,18 @@
                 const input = document.getElementById('chatInput');
                 const text = input ? input.value.trim() : '';
                 if (!text) return;
+
+                if (window.MP && window.MP.token && window.MP.postGuildChat) {
+                    try {
+                        const res = await window.MP.postGuildChat(text);
+                        if (res && Array.isArray(res.messages)) this._guildChatCache = res.messages;
+                        if (input) input.value = '';
+                        this.renderGuildChatInline();
+                    } catch (e) {
+                        if (window.game) window.game.showNotification('⚠️ Guild chat send failed');
+                    }
+                    return;
+                }
 
                 const player = window.game && window.game.playerData;
                 const msg = {
@@ -10145,7 +10276,7 @@
                 `;
             }
             
-            sendMessage() {
+            async sendMessage() {
                 // Route to guild chat if that tab is active
                 if (this.currentTab === 'guild') {
                     this.sendGuildMessage();
@@ -10156,6 +10287,24 @@
                 const text = input.value.trim();
                 
                 if (!text) return;
+
+                if (window.MP && window.MP.token && window.MP.postChat) {
+                    try {
+                        const res = await window.MP.postChat(text);
+                        if (res && Array.isArray(res.messages)) this.messages = res.messages;
+                        else if (res && res.message) {
+                            this.messages.push(res.message);
+                            if (this.messages.length > 200) this.messages = this.messages.slice(-200);
+                        }
+                        if (res && res.updatedAt) this._chatUpdatedAt = res.updatedAt;
+                        this.renderMessages();
+                        input.value = '';
+                        input.focus();
+                    } catch (e) {
+                        if (window.game) window.game.showNotification('⚠️ Chat send failed');
+                    }
+                    return;
+                }
 
                 let player = null;
                 if (typeof auth !== 'undefined' && auth.currentSession && auth.db) {
@@ -10182,7 +10331,6 @@
                 };
                 
                 this.messages.push(message);
-                // Cap messages to prevent unbounded memory growth
                 if (this.messages.length > 200) {
                     this.messages = this.messages.slice(-200);
                 }
@@ -10191,23 +10339,64 @@
                 
                 input.value = '';
                 input.focus();
-                
-                // Broadcast to other players (simulated)
                 this.broadcastMessage(message);
             }
             
             broadcastMessage(message) {
-                // In a real implementation, this would send via WebSocket
-                // For now, we just save to localStorage for other tabs to see
-                localStorage.setItem('stellarCommandChat', JSON.stringify(this.messages));
-                localStorage.setItem('stellarCommandChatUpdate', Date.now().toString());
+                this.saveMessages();
+            }
+
+            _saveEventLog() {
+                // Online: last event already posted via postChatEvent; keep offline cache only
+                if (window.MP && window.MP.token) return;
+                try { localStorage.setItem('stellarCommandEventLog', JSON.stringify(this.eventLog)); } catch (e) {}
             }
             
             checkForNewMessages() {
-                // Only re-parse when the update timestamp has actually changed
+                if (window.MP && window.MP.token) {
+                    const now = Date.now();
+                    if (this._lastServerChatPoll && now - this._lastServerChatPoll < 2500) return;
+                    this._lastServerChatPoll = now;
+                    const poll = window.MP.getChat
+                        ? window.MP.getChat()
+                        : window.MP.getWorld('stellarCommandChat').then((c) => ({
+                            messages: c && c.value && c.value.messages, updatedAt: c && c.updatedAt
+                        }));
+                    poll.then((chat) => {
+                        if (!chat || !Array.isArray(chat.messages)) return;
+                        if (chat.updatedAt && chat.updatedAt === this._chatUpdatedAt) return;
+                        const newMessages = chat.messages;
+                        if (newMessages.length > this.messages.length) {
+                            const previousLength = this.messages.length;
+                            this.messages = newMessages.slice(-200);
+                            this._chatUpdatedAt = chat.updatedAt;
+                            const chatWindow = document.getElementById('chatWindow');
+                            const isVisible = chatWindow && chatWindow.style.display !== 'none';
+                            if (!isVisible || this.isMinimized) {
+                                this.unreadCount += (newMessages.length - previousLength);
+                                this.showNewMessageNotification();
+                            }
+                            if (this.currentTab === 'global' && isVisible && !this.isMinimized) {
+                                this.renderMessages();
+                            }
+                        } else {
+                            this.messages = newMessages.slice(-200);
+                            this._chatUpdatedAt = chat.updatedAt;
+                        }
+                    }).catch(() => {});
+                    if (this.currentTab === 'guild' && window.MP.getGuildChat) {
+                        window.MP.getGuildChat().then((g) => {
+                            if (g && Array.isArray(g.messages)) this._guildChatCache = g.messages;
+                            const chatWindow = document.getElementById('chatWindow');
+                            const isVisible = chatWindow && chatWindow.style.display !== 'none';
+                            if (isVisible && !this.isMinimized) this.renderGuildChatInline();
+                        }).catch(() => {});
+                    }
+                    return;
+                }
+
                 const lastUpdate = localStorage.getItem('stellarCommandChatUpdate');
                 if (lastUpdate === this._lastChatUpdate) {
-                    // Still check guild chat (separate key, cheap check)
                     const guildId = window.game && window.game.guildId;
                     if (guildId) {
                         const updateKey = `fu_guildChatUpdate_${guildId}`;
@@ -10224,32 +10413,23 @@
                     return;
                 }
                 this._lastChatUpdate = lastUpdate;
-
                 const storedMessages = localStorage.getItem('stellarCommandChat');
-                
                 if (storedMessages) {
                     const newMessages = JSON.parse(storedMessages);
-                    
                     if (newMessages.length > this.messages.length) {
                         const previousLength = this.messages.length;
                         this.messages = newMessages;
-                        
-                        // Check if chat is minimized or closed
                         const chatWindow = document.getElementById('chatWindow');
                         const isVisible = chatWindow.style.display !== 'none';
-                        
                         if (!isVisible || this.isMinimized) {
                             this.unreadCount += (newMessages.length - previousLength);
                             this.showNewMessageNotification();
                         }
-                        
                         if (this.currentTab === 'global' && isVisible && !this.isMinimized) {
                             this.renderMessages();
                         }
                     }
                 }
-
-                // Poll guild chat for updates from other tabs/sessions
                 const guildId = window.game && window.game.guildId;
                 if (guildId) {
                     const updateKey = `fu_guildChatUpdate_${guildId}`;
@@ -10314,7 +10494,12 @@
             }
             
             saveMessages() {
-                localStorage.setItem('stellarCommandChat', JSON.stringify(this.messages));
+                // Online chat is append-only via postChat — never overwrite the blob
+                if (window.MP && window.MP.token) return;
+                try {
+                    localStorage.setItem('stellarCommandChat', JSON.stringify(this.messages));
+                    localStorage.setItem('stellarCommandChatUpdate', Date.now().toString());
+                } catch (e) {}
             }
             
             scrollToTop() {
@@ -11292,15 +11477,31 @@
             }
             
             loadGuilds() {
-                const saved = localStorage.getItem('fractured_guilds');
-                if (saved) {
-                    const data = JSON.parse(saved);
-                    this.guilds = data.guilds || {};
-                    this.nextGuildId = data.nextGuildId || 1;
+                if (window.MP && window.MP.token) {
+                    window.MP.getWorld('fractured_guilds').then((res) => {
+                        if (res && res.value) {
+                            this.guilds = res.value.guilds || {};
+                            this.nextGuildId = res.value.nextGuildId || 1;
+                        }
+                    }).catch((e) => console.warn('[guilds] server load failed', e.message));
+                    return;
                 }
+                try {
+                    const saved = localStorage.getItem('fractured_guilds');
+                    if (saved) {
+                        const data = JSON.parse(saved);
+                        this.guilds = data.guilds || {};
+                        this.nextGuildId = data.nextGuildId || 1;
+                    }
+                } catch (e) {}
             }
             
             saveGuilds() {
+                // Online guild registry is owned by /api/guilds — never overwrite via world PUT
+                if (window.MP && window.MP.token) {
+                    try { localStorage.removeItem('fractured_guilds'); } catch (e) {}
+                    return;
+                }
                 localStorage.setItem('fractured_guilds', JSON.stringify({
                     guilds: this.guilds,
                     nextGuildId: this.nextGuildId
@@ -11948,6 +12149,144 @@
         const guildUI = window.guildUI; // Backward compatibility
         
         // Player Market System
+        function applyServerEconomyState(state, opts) {
+            if (!state || !window.game) return;
+            const skipSave = opts && opts.skipSave;
+            if (state.resources && typeof state.resources === 'object') {
+                window.game.resources = Object.assign({}, window.game.resources || {}, state.resources);
+            }
+            if (state.horizonCoins != null) {
+                window.game.horizonCoins = Math.max(0, Math.floor(Number(state.horizonCoins) || 0));
+            }
+            if (Array.isArray(state.inventory)) {
+                window.game.inventory = state.inventory;
+            }
+            try {
+                if (typeof window.game.updateResources === 'function') window.game.updateResources();
+                if (typeof window.game.updateDisplay === 'function') window.game.updateDisplay();
+                if (typeof window.game.renderInventory === 'function') window.game.renderInventory();
+                // Avoid recursive save loops when applying PUT/economy responses
+                if (!skipSave && typeof window.game.saveGameState === 'function') {
+                    window.game.saveGameState();
+                }
+            } catch (e) {}
+        }
+
+        async function serverEconomySpend(payload) {
+            if (!(window.MP && window.MP.token && window.MP.economySpend)) return { ok: true, offline: true };
+            try {
+                const res = await window.MP.economySpend(payload);
+                applyServerEconomyState(res, { skipSave: true });
+                return { ok: true, res };
+            } catch (e) {
+                return { ok: false, error: e.message || 'Spend failed' };
+            }
+        }
+
+        async function serverEconomyGrant(payload) {
+            if (!(window.MP && window.MP.token && window.MP.economyGrant)) return { ok: true, offline: true };
+            try {
+                const res = await window.MP.economyGrant(payload);
+                applyServerEconomyState(res, { skipSave: true });
+                return { ok: true, res };
+            } catch (e) {
+                return { ok: false, error: e.message || 'Grant failed' };
+            }
+        }
+
+        async function serverEconomyCollect() {
+            if (!(window.MP && window.MP.token && window.MP.economyCollect)) return null;
+            try {
+                const res = await window.MP.economyCollect();
+                applyServerEconomyState(res, { skipSave: true });
+                return res;
+            } catch (e) {
+                console.warn('[economy] collect failed', e.message || e);
+                return null;
+            }
+        }
+
+        async function reconcileEconomyWithServer() {
+            if (!(window.MP && window.MP.token && window.game)) return;
+            try {
+                // 1) Claim production first so legitimate income is on the server
+                if (typeof serverEconomyCollect === 'function') {
+                    await serverEconomyCollect();
+                }
+                const server = await window.MP.getEconomy();
+                if (!server || !server.resources) return;
+
+                const g = window.game;
+                const spendRes = {};
+                let hcSpend = 0;
+                const keys = ['metal', 'he3', 'food', 'credits', 'researchPoints'];
+                keys.forEach((k) => {
+                    const local = Math.floor(Number(g.resources?.[k]) || 0);
+                    const remote = Math.floor(Number(server.resources[k]) || 0);
+                    if (local < remote) spendRes[k] = remote - local;
+                });
+                const localHc = Math.floor(Number(g.horizonCoins) || 0);
+                const remoteHc = Math.floor(Number(server.horizonCoins) || 0);
+                if (localHc < remoteHc) hcSpend = remoteHc - localHc;
+
+                // Inventory removals (used/sold/crafted)
+                const remoteInv = Array.isArray(server.inventory) ? server.inventory : [];
+                const localInv = Array.isArray(g.inventory) ? g.inventory : [];
+                const localById = {};
+                localInv.forEach((i) => { if (i && i.id != null) localById[String(i.id)] = i; });
+                const inventoryRemove = [];
+                remoteInv.forEach((ri) => {
+                    if (!ri || ri.id == null) return;
+                    const lid = localById[String(ri.id)];
+                    const remoteQty = Math.max(1, Math.floor(Number(ri.quantity) || 1));
+                    if (!lid) {
+                        inventoryRemove.push({ id: ri.id, quantity: remoteQty });
+                        return;
+                    }
+                    const localQty = Math.max(1, Math.floor(Number(lid.quantity) || 1));
+                    if (localQty < remoteQty) {
+                        inventoryRemove.push({ id: ri.id, quantity: remoteQty - localQty });
+                    }
+                });
+
+                if (Object.keys(spendRes).length || hcSpend > 0 || inventoryRemove.length) {
+                    await serverEconomySpend({
+                        resources: spendRes,
+                        horizonCoins: hcSpend,
+                        inventoryRemove,
+                    });
+                }
+
+                // New local-only items → try capped grant (search/craft). Excess is dropped on apply.
+                const remoteIds = new Set(remoteInv.map((i) => i && String(i.id)));
+                const newItems = localInv.filter((i) => i && i.id != null && !remoteIds.has(String(i.id)));
+                if (newItems.length) {
+                    await serverEconomyGrant({
+                        reason: 'search',
+                        inventoryAdd: newItems.slice(0, 3).map((i) => ({
+                            id: i.id,
+                            artifactId: i.artifactId,
+                            quantity: Math.max(1, Math.floor(Number(i.quantity) || 1)),
+                            source: i.source || 'search',
+                            planetName: i.planetName || null,
+                        })),
+                    });
+                }
+
+                // Authoritative wallet wins (drops invented resources / uncapped loot)
+                const fresh = await window.MP.getEconomy();
+                applyServerEconomyState(fresh, { skipSave: true });
+            } catch (e) {
+                console.warn('[economy] reconcile failed', e.message || e);
+            }
+        }
+
+        window.applyServerEconomyState = applyServerEconomyState;
+        window.serverEconomySpend = serverEconomySpend;
+        window.serverEconomyGrant = serverEconomyGrant;
+        window.serverEconomyCollect = serverEconomyCollect;
+        window.reconcileEconomyWithServer = reconcileEconomyWithServer;
+
         class MarketManager {
             constructor() {
                 this.listings = [];
@@ -11956,33 +12295,64 @@
             }
             
             loadMarket() {
-                const saved = localStorage.getItem('fractured_market');
-                if (saved) {
-                    const data = JSON.parse(saved);
-                    this.listings = data.listings || [];
-                    this.nextListingId = data.nextListingId || 1;
+                if (window.MP && window.MP.token && window.MP.getMarket) {
+                    window.MP.getMarket().then((res) => {
+                        if (!res) return;
+                        const active = res.listings || [];
+                        const mine = res.myListings || [];
+                        const byId = {};
+                        active.concat(mine).forEach((l) => { if (l && l.id != null) byId[l.id] = l; });
+                        this.listings = Object.values(byId);
+                        this.nextListingId = res.nextListingId || 1;
+                        try { localStorage.removeItem('fractured_market'); } catch (e) {}
+                    }).catch((e) => console.warn('[market] server load failed', e.message));
+                    return;
                 }
+                try {
+                    const saved = localStorage.getItem('fractured_market');
+                    if (saved) {
+                        const data = JSON.parse(saved);
+                        this.listings = data.listings || [];
+                        this.nextListingId = data.nextListingId || 1;
+                    }
+                } catch (e) {}
             }
             
             saveMarket() {
+                // Online market is mutated only via /api/market/* actions
+                if (window.MP && window.MP.token) return;
                 localStorage.setItem('fractured_market', JSON.stringify({
                     listings: this.listings,
                     nextListingId: this.nextListingId
                 }));
             }
-            
-            createListing(seller, resourceType, quantity, pricePerUnit) {
+
+            async createListing(seller, resourceType, quantity, pricePerUnit) {
+                if (window.MP && window.MP.token && window.MP.marketListResource) {
+                    try {
+                        const res = await window.MP.marketListResource(resourceType, quantity, pricePerUnit);
+                        if (res && res.listing) {
+                            this.listings = this.listings.filter(l => l.id !== res.listing.id);
+                            this.listings.push(res.listing);
+                            applyServerEconomyState(res.state);
+                        }
+                        return res && res.success !== false
+                            ? { success: true, listing: res.listing }
+                            : { success: false, error: (res && res.error) || 'Listing failed' };
+                    } catch (e) {
+                        return { success: false, error: e.message || 'Listing failed' };
+                    }
+                }
                 const listing = {
                     id: this.nextListingId++,
                     seller: seller,
-                    resourceType: resourceType, // 'metal', 'he3', 'food'
+                    resourceType: resourceType,
                     quantity: quantity,
                     pricePerUnit: pricePerUnit,
                     totalPrice: quantity * pricePerUnit,
                     createdAt: new Date().toISOString(),
                     status: 'active'
                 };
-                
                 this.listings.push(listing);
                 this.saveMarket();
                 return { success: true, listing };
@@ -11996,45 +12366,56 @@
                 return active.sort((a, b) => a.pricePerUnit - b.pricePerUnit); // Sort by price
             }
             
-            buyListing(listingId, buyer) {
+            async buyListing(listingId, buyer) {
+                if (window.MP && window.MP.token && window.MP.marketBuy) {
+                    try {
+                        const res = await window.MP.marketBuy(listingId);
+                        if (res && res.listing) {
+                            const idx = this.listings.findIndex(l => l.id === listingId);
+                            if (idx >= 0) this.listings[idx] = res.listing;
+                            else this.listings.push(res.listing);
+                            applyServerEconomyState(res.state);
+                        }
+                        return res && res.success !== false
+                            ? { success: true, listing: res.listing }
+                            : { success: false, error: (res && res.error) || 'Purchase failed' };
+                    } catch (e) {
+                        return { success: false, error: e.message || 'Purchase failed' };
+                    }
+                }
                 const listing = this.listings.find(l => l.id === listingId);
-                if (!listing) {
-                    return { success: false, error: 'Listing not found' };
-                }
-                
-                if (listing.status !== 'active') {
-                    return { success: false, error: 'Listing no longer available' };
-                }
-                
-                if (listing.seller === buyer) {
-                    return { success: false, error: 'Cannot buy your own listing' };
-                }
-                
+                if (!listing) return { success: false, error: 'Listing not found' };
+                if (listing.status !== 'active') return { success: false, error: 'Listing no longer available' };
+                if (listing.seller === buyer) return { success: false, error: 'Cannot buy your own listing' };
                 listing.status = 'sold';
                 listing.buyer = buyer;
                 listing.soldAt = new Date().toISOString();
-                
                 this.saveMarket();
                 return { success: true, listing };
             }
             
-            cancelListing(listingId, username) {
+            async cancelListing(listingId, username) {
+                if (window.MP && window.MP.token && window.MP.marketCancel) {
+                    try {
+                        const res = await window.MP.marketCancel(listingId);
+                        if (res && res.listing) {
+                            const idx = this.listings.findIndex(l => l.id === listingId);
+                            if (idx >= 0) this.listings[idx] = res.listing;
+                            applyServerEconomyState(res.state);
+                        }
+                        return res && res.success !== false
+                            ? { success: true, listing: res.listing }
+                            : { success: false, error: (res && res.error) || 'Cancel failed' };
+                    } catch (e) {
+                        return { success: false, error: e.message || 'Cancel failed' };
+                    }
+                }
                 const listing = this.listings.find(l => l.id === listingId);
-                if (!listing) {
-                    return { success: false, error: 'Listing not found' };
-                }
-                
-                if (listing.seller !== username) {
-                    return { success: false, error: 'Not your listing' };
-                }
-                
-                if (listing.status !== 'active') {
-                    return { success: false, error: 'Listing already closed' };
-                }
-                
+                if (!listing) return { success: false, error: 'Listing not found' };
+                if (listing.seller !== username) return { success: false, error: 'Not your listing' };
+                if (listing.status !== 'active') return { success: false, error: 'Listing already closed' };
                 listing.status = 'cancelled';
                 listing.cancelledAt = new Date().toISOString();
-                
                 this.saveMarket();
                 return { success: true };
             }
@@ -12044,8 +12425,25 @@
             }
 
             // ── Artifact listings ────────────────────────────────────────
-            createArtifactListing(seller, artifactId, artifactName, artifactIcon, price, inventoryItemId, currency = 'credits') {
+            async createArtifactListing(seller, artifactId, artifactName, artifactIcon, price, inventoryItemId, currency = 'credits') {
                 const payCurrency = (currency === 'horizonCoins') ? 'horizonCoins' : 'credits';
+                if (window.MP && window.MP.token && window.MP.marketListArtifact) {
+                    try {
+                        const res = await window.MP.marketListArtifact({
+                            artifactId, artifactName, artifactIcon, price, inventoryItemId, currency: payCurrency
+                        });
+                        if (res && res.listing) {
+                            this.listings = this.listings.filter(l => l.id !== res.listing.id);
+                            this.listings.push(res.listing);
+                            applyServerEconomyState(res.state);
+                        }
+                        return res && res.success !== false
+                            ? { success: true, listing: res.listing }
+                            : { success: false, error: (res && res.error) || 'Listing failed' };
+                    } catch (e) {
+                        return { success: false, error: e.message || 'Listing failed' };
+                    }
+                }
                 const listing = {
                     id: this.nextListingId++,
                     seller,
@@ -12070,7 +12468,23 @@
                     .sort((a, b) => a.price - b.price);
             }
 
-            buyArtifactListing(listingId, buyer) {
+            async buyArtifactListing(listingId, buyer) {
+                if (window.MP && window.MP.token && window.MP.marketBuy) {
+                    try {
+                        const res = await window.MP.marketBuy(listingId);
+                        if (res && res.listing) {
+                            const idx = this.listings.findIndex(l => l.id === listingId);
+                            if (idx >= 0) this.listings[idx] = res.listing;
+                            else this.listings.push(res.listing);
+                            applyServerEconomyState(res.state);
+                        }
+                        return res && res.success !== false
+                            ? { success: true, listing: res.listing, serverHandled: true }
+                            : { success: false, error: (res && res.error) || 'Purchase failed' };
+                    } catch (e) {
+                        return { success: false, error: e.message || 'Purchase failed' };
+                    }
+                }
                 const listing = this.listings.find(l => l.id === listingId);
                 if (!listing || listing.listingType !== 'artifact') return { success: false, error: 'Listing not found' };
                 if (listing.status !== 'active') return { success: false, error: 'Listing no longer available' };
@@ -12239,45 +12653,43 @@
                 }).join('');
             }
 
-            buyArtifactListing(listingId) {
+            async buyArtifactListing(listingId) {
                 const listing = marketManager.listings.find(l => l.id === listingId);
                 if (!listing) return;
                 const currency = listing.currency === 'horizonCoins' ? 'horizonCoins' : 'credits';
                 const price = Number(listing.price) || 0;
-                if (currency === 'horizonCoins') {
-                    if ((game.horizonCoins || 0) < price) {
-                        game.showNotification('⚠️ Insufficient Horizon Coins!');
+                const online = !!(window.MP && window.MP.token && window.MP.marketBuy);
+                if (!online) {
+                    if (currency === 'horizonCoins') {
+                        if ((game.horizonCoins || 0) < price) {
+                            game.showNotification('⚠️ Insufficient Horizon Coins!');
+                            return;
+                        }
+                    } else if ((game.resources.credits || 0) < price) {
+                        game.showNotification('⚠️ Insufficient credits!');
                         return;
                     }
-                } else if ((game.resources.credits || 0) < price) {
-                    game.showNotification('⚠️ Insufficient credits!');
-                    return;
                 }
-                const result = marketManager.buyArtifactListing(listingId, game.playerData.username);
+                const result = await marketManager.buyArtifactListing(listingId, game.playerData.username);
                 if (result.success) {
-                    if (currency === 'horizonCoins') {
-                        game.horizonCoins = Math.max(0, (game.horizonCoins || 0) - price);
-                        if (listing.seller === game.playerData.username) {
-                            game.horizonCoins = (game.horizonCoins || 0) + price;
+                    if (!online && !result.serverHandled) {
+                        if (currency === 'horizonCoins') {
+                            game.horizonCoins = Math.max(0, (game.horizonCoins || 0) - price);
+                        } else {
+                            game.resources.credits -= price;
                         }
-                    } else {
-                        game.resources.credits -= price;
-                        if (listing.seller === game.playerData.username) {
-                            game.resources.credits += price;
-                        }
+                        game.addInventoryItem({
+                            artifactId: listing.artifactId,
+                            foundAt: new Date().toISOString(),
+                            source: 'market',
+                            planetName: 'Player Market',
+                            quantity: 1
+                        });
+                        game.updateResources();
+                        if (typeof game.updateDisplay === 'function') game.updateDisplay();
+                        game.renderInventory && game.renderInventory();
+                        game.saveGameState();
                     }
-                    // Grant artifact to buyer's inventory
-                    game.addInventoryItem({
-                        artifactId: listing.artifactId,
-                        foundAt: new Date().toISOString(),
-                        source: 'market',
-                        planetName: 'Player Market',
-                        quantity: 1
-                    });
-                    game.updateResources();
-                    if (typeof game.updateDisplay === 'function') game.updateDisplay();
-                    game.renderInventory && game.renderInventory();
-                    game.saveGameState();
                     const paid = currency === 'horizonCoins'
                         ? `💎 ${price.toLocaleString()} HC`
                         : `₡${price.toLocaleString()}`;
@@ -12326,7 +12738,7 @@
                 }).join('');
             }
 
-            createListing() {
+            async createListing() {
                 const resourceType = document.getElementById('sellResource').value;
                 const quantity = parseInt(document.getElementById('sellQuantity').value) || 0;
                 const pricePerUnit = parseInt(document.getElementById('sellPrice').value) || 0;
@@ -12336,19 +12748,18 @@
                     return;
                 }
                 
-                // Check if player has enough resources
                 const resourceKey = resourceType === 'he3' ? 'he3' : resourceType;
-                if (game.resources[resourceKey] < quantity) {
-                    game.showNotification('⚠️ Insufficient resources!');
-                    return;
+                const online = !!(window.MP && window.MP.token && window.MP.marketListResource);
+                if (!online) {
+                    if (game.resources[resourceKey] < quantity) {
+                        game.showNotification('⚠️ Insufficient resources!');
+                        return;
+                    }
+                    game.resources[resourceKey] -= quantity;
+                    game.updateResources();
                 }
                 
-                // Deduct resources
-                game.resources[resourceKey] -= quantity;
-                game.updateResources();
-                
-                // Create listing
-                const result = marketManager.createListing(
+                const result = await marketManager.createListing(
                     game.playerData.username,
                     resourceType,
                     quantity,
@@ -12360,29 +12771,32 @@
                     document.getElementById('sellPrice').value = '';
                     game.showNotification(`✅ Listed ${quantity.toLocaleString()} ${resourceType} for ${(quantity * pricePerUnit).toLocaleString()} credits`);
                     this.switchTab('myListings');
+                } else {
+                    game.showNotification(`⚠️ ${result.error || 'Listing failed'}`);
+                    if (!online) {
+                        // refund local optimistic deduct on failure (offline path already deducted)
+                    }
                 }
             }
             
-            buyListing(listingId) {
+            async buyListing(listingId) {
                 const listing = marketManager.listings.find(l => l.id === listingId);
                 if (!listing) return;
-                
-                if (game.resources.credits < listing.totalPrice) {
+                const online = !!(window.MP && window.MP.token && window.MP.marketBuy);
+                if (!online && game.resources.credits < listing.totalPrice) {
                     game.showNotification('⚠️ Insufficient credits!');
                     return;
                 }
                 
-                const result = marketManager.buyListing(listingId, game.playerData.username);
+                const result = await marketManager.buyListing(listingId, game.playerData.username);
                 
                 if (result.success) {
-                    // Deduct credits
-                    game.resources.credits -= listing.totalPrice;
-                    
-                    // Add resources
-                    const resourceKey = listing.resourceType === 'he3' ? 'he3' : listing.resourceType;
-                    game.resources[resourceKey] += listing.quantity;
-                    
-                    game.updateResources();
+                    if (!online) {
+                        game.resources.credits -= listing.totalPrice;
+                        const resourceKey = listing.resourceType === 'he3' ? 'he3' : listing.resourceType;
+                        game.resources[resourceKey] += listing.quantity;
+                        game.updateResources();
+                    }
                     game.showNotification(`✅ Purchased ${listing.quantity.toLocaleString()} ${listing.resourceType} for ${listing.totalPrice.toLocaleString()} credits`);
                     this.renderBuyListings();
                 } else {
@@ -12390,32 +12804,37 @@
                 }
             }
             
-            cancelListing(listingId) {
+            async cancelListing(listingId) {
                 const listing = marketManager.listings.find(l => l.id === listingId);
                 if (!listing) return;
+                const online = !!(window.MP && window.MP.token && window.MP.marketCancel);
                 
-                const result = marketManager.cancelListing(listingId, game.playerData.username);
+                const result = await marketManager.cancelListing(listingId, game.playerData.username);
                 
                 if (result.success) {
-                    if (listing.listingType === 'artifact') {
-                        // Return artifact to inventory
-                        if (ARTIFACTS[listing.artifactId]) {
-                            game.addInventoryItem({
-                                artifactId: listing.artifactId,
-                                foundAt: Date.now(),
-                                source: 'marketReturn',
-                                planetName: 'Market Return'
-                            });
-                            game.renderInventory && game.renderInventory();
-                            game.saveGameState();
+                    if (!online) {
+                        if (listing.listingType === 'artifact') {
+                            if (ARTIFACTS[listing.artifactId]) {
+                                game.addInventoryItem({
+                                    artifactId: listing.artifactId,
+                                    foundAt: Date.now(),
+                                    source: 'marketReturn',
+                                    planetName: 'Market Return'
+                                });
+                                game.renderInventory && game.renderInventory();
+                                game.saveGameState();
+                            }
+                            game.showNotification(`↩️ ${listing.artifactIcon} ${listing.artifactName} returned to your inventory`);
+                        } else {
+                            const resourceKey = listing.resourceType === 'he3' ? 'he3' : listing.resourceType;
+                            game.resources[resourceKey] += listing.quantity;
+                            game.updateResources();
+                            game.showNotification('✅ Listing cancelled, resources returned');
                         }
-                        game.showNotification(`↩️ ${listing.artifactIcon} ${listing.artifactName} returned to your inventory`);
                     } else {
-                        // Return resources to player
-                        const resourceKey = listing.resourceType === 'he3' ? 'he3' : listing.resourceType;
-                        game.resources[resourceKey] += listing.quantity;
-                        game.updateResources();
-                        game.showNotification('✅ Listing cancelled, resources returned');
+                        game.showNotification(listing.listingType === 'artifact'
+                            ? `↩️ ${listing.artifactIcon} ${listing.artifactName} returned to your inventory`
+                            : '✅ Listing cancelled, resources returned');
                     }
                     this.renderMyListings();
                 } else {
@@ -13206,18 +13625,17 @@ const SHIP_IMAGE_DATA = {
             }
             
             logout() {
+                // Always flush empire + HC + inventory to server/local before leaving
+                if (window.game) {
+                    try { this.saveGameState(); } catch (e) { console.warn('logout save failed', e); }
+                }
                 if (this.currentSession) {
-                    // Save game state before logout
-                    if (window.game) {
-                        const gameState = window.game.getGameState();
-                        this.db.updatePlayerState(this.currentSession, gameState);
-                    }
-                    
-                    // Unregister from game server
-                    gameServer.unregisterPlayer(this.currentSession);
-                    
-                    this.db.logout(this.currentSession);
+                    try { gameServer.unregisterPlayer(this.currentSession); } catch (e) {}
+                    try { this.db.logout(this.currentSession); } catch (e) {}
                     this.currentSession = null;
+                }
+                if (window.MP && window.MP.token) {
+                    window.MP.logout().catch(() => {});
                 }
                 
                 document.getElementById('loginScreen').style.display = 'flex';
@@ -13225,18 +13643,36 @@ const SHIP_IMAGE_DATA = {
                 location.reload();
             }
             
-            saveGameState() {
-                if (this.currentSession && window.game) {
-                    const gameState = window.game.getGameState();
+            saveGameState(opts) {
+                if (!window.game) return;
+                const light = !!(opts && opts.light);
+                const gameState = window.game.getGameState();
+                // Local browser DB (legacy fallback) when a local session exists
+                if (this.currentSession) {
                     this.db.updatePlayerState(this.currentSession, gameState);
-                    // Write-through to the multiplayer backend when connected — fire-and-forget
-                    // so a slow/offline server never blocks or breaks local saving.
-                    if (window.MP && window.MP.token) {
-                        window.MP.saveState(gameState).catch((e) => console.warn('[MP] save failed (local save still succeeded):', e.message));
+                }
+                // Authoritative persistence: multiplayer backend (Postgres).
+                // Full saves reconcile economy; light autosaves skip that hitch.
+                if (window.MP && window.MP.token) {
+                    const doSave = () => {
+                        const latest = window.game.getGameState();
+                        return window.MP.saveState(latest).then((res) => {
+                            if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
+                                applyServerEconomyState(res, { skipSave: true });
+                            }
+                        });
+                    };
+                    if (!light && typeof reconcileEconomyWithServer === 'function') {
+                        reconcileEconomyWithServer().then(doSave).catch((e) => {
+                            console.warn('[MP] reconcile/save failed:', e.message || e);
+                            doSave().catch((err) => console.warn('[MP] save failed:', err.message));
+                        });
+                    } else {
+                        doSave().catch((e) => console.warn('[MP] save failed:', e.message));
                     }
-                    if (typeof window.game.reportUltimateHeartbeat === 'function') {
-                        window.game.reportUltimateHeartbeat();
-                    }
+                }
+                if (!light && typeof window.game.reportUltimateHeartbeat === 'function') {
+                    window.game.reportUltimateHeartbeat();
                 }
             }
             
@@ -14277,6 +14713,20 @@ const SHIP_IMAGE_DATA = {
             loadPlayerData(playerData) {
                 console.log('📥 loadPlayerData called');
                 try {
+                    // MP loadState() returns a flat save blob; local auth nests it under gameState.
+                    // Normalize so the rest of this loader always reads playerData.gameState.*.
+                    if (!playerData.gameState || typeof playerData.gameState !== 'object') {
+                        const { username, race, accountType, sessionToken, email, password, id, createdAt, state, ...rest } = playerData;
+                        const nested = (state && typeof state === 'object') ? state : rest;
+                        // If nested still looks empty but inventory/HC lived on the root, keep them
+                        playerData.gameState = (nested && typeof nested === 'object') ? { ...nested } : {};
+                        if (playerData.inventory && !playerData.gameState.inventory) {
+                            playerData.gameState.inventory = playerData.inventory;
+                        }
+                        if (playerData.horizonCoins != null && playerData.gameState.horizonCoins == null) {
+                            playerData.gameState.horizonCoins = playerData.horizonCoins;
+                        }
+                    }
                     this.playerData = playerData;
                     this.currentPlayer = playerData; // Store current player reference
                     
@@ -14487,6 +14937,53 @@ const SHIP_IMAGE_DATA = {
                         this.inventory = [];
                     }
 
+                    // Load owned commanders (gacha / collection)
+                    if (Array.isArray(playerData.gameState.commanders)) {
+                        this.commanders = playerData.gameState.commanders;
+                        console.log(`Loaded ${this.commanders.length} commanders`);
+                    } else if (!Array.isArray(this.commanders)) {
+                        this.commanders = [];
+                    }
+
+                    if (playerData.gameState.commanderAssignments) {
+                        this.commanderAssignments = {
+                            planets: playerData.gameState.commanderAssignments.planets || {},
+                            fleets: playerData.gameState.commanderAssignments.fleets || {},
+                        };
+                    }
+                    if (playerData.gameState.artifactBonuses) {
+                        this.artifactBonuses = {
+                            food: Number(playerData.gameState.artifactBonuses.food) || 0,
+                            populationGrowth: Number(playerData.gameState.artifactBonuses.populationGrowth) || 0,
+                        };
+                    }
+                    if (playerData.gameState.capturedShips) {
+                        this.capturedShips = playerData.gameState.capturedShips;
+                    }
+                    if (playerData.gameState.reverseEngineered) {
+                        this.reverseEngineered = playerData.gameState.reverseEngineered;
+                    }
+                    if (playerData.gameState.buildQuantities) {
+                        this.buildQuantities = playerData.gameState.buildQuantities;
+                    }
+                    this._craftedRecipes = playerData.gameState.craftedRecipes || {};
+                    this._craftingQueue = playerData.gameState.craftingQueue || [];
+                    this._audioDiscTracks = Array.isArray(playerData.gameState.audioDiscTracks)
+                        ? playerData.gameState.audioDiscTracks : [];
+                    this._audioBonusTracks = Array.isArray(playerData.gameState.audioBonusTracks)
+                        ? playerData.gameState.audioBonusTracks : [];
+                    this._tutorialDone = !!playerData.gameState.tutorialDone;
+                    // Apply crafting / audio / viral from server blob (not localStorage)
+                    setTimeout(() => {
+                        if (window.craftingManager && window.craftingManager.hydrateFromGameState) {
+                            window.craftingManager.hydrateFromGameState(this._craftedRecipes, this._craftingQueue);
+                        }
+                        if (window.audioManager && window.audioManager.hydrateFromGameState) {
+                            window.audioManager.hydrateFromGameState(this._audioDiscTracks, this._audioBonusTracks);
+                        }
+                        if (typeof this.loadInfectData === 'function') this.loadInfectData();
+                    }, 0);
+
                     // Load guild inventory and name
                     if (playerData.gameState.guildInventory) {
                         this.guildInventory = playerData.gameState.guildInventory;
@@ -14578,6 +15075,21 @@ const SHIP_IMAGE_DATA = {
                 }
             }
             
+            saveGameState() {
+                // Prefer AuthManager (writes local DB + MP server). Fall back to MP-only.
+                if (window.auth && typeof window.auth.saveGameState === 'function') {
+                    window.auth.saveGameState();
+                    return;
+                }
+                if (window.MP && window.MP.token) {
+                    window.MP.saveState(this.getGameState()).then((res) => {
+                        if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
+                            applyServerEconomyState(res, { skipSave: true });
+                        }
+                    }).catch((e) => console.warn('[MP] save failed:', e.message));
+                }
+            }
+
             getGameState() {
                 return {
                     horizonCoins: this.horizonCoins || 0,
@@ -14599,6 +15111,21 @@ const SHIP_IMAGE_DATA = {
                     buildQueue: this.buildQueue,
                     clusters: this.clusters,
                     inventory: this.inventory || [],
+                    commanders: Array.isArray(this.commanders) ? this.commanders : [],
+                    commanderAssignments: this.commanderAssignments || { planets: {}, fleets: {} },
+                    artifactBonuses: this.artifactBonuses || { food: 0, populationGrowth: 0 },
+                    capturedShips: this.capturedShips || {},
+                    reverseEngineered: this.reverseEngineered || {},
+                    buildQuantities: this.buildQuantities || {},
+                    craftedRecipes: (window.craftingManager && window.craftingManager.getCraftedRecipes)
+                        ? window.craftingManager.getCraftedRecipes()
+                        : (this._craftedRecipes || {}),
+                    craftingQueue: (window.craftingManager && window.craftingManager.getCraftingQueue)
+                        ? window.craftingManager.getCraftingQueue()
+                        : (this._craftingQueue || []),
+                    audioDiscTracks: this._audioDiscTracks || [],
+                    audioBonusTracks: this._audioBonusTracks || [],
+                    tutorialDone: !!this._tutorialDone,
                     guildId: this.guildId,
                     guildRole: this.guildRole,
                     guildInventory: this.guildInventory || [],
@@ -14722,12 +15249,17 @@ const SHIP_IMAGE_DATA = {
                     // Update server info
                     this.serverInfoInterval = setInterval(() => this.updateServerInfo(), 5000);
                     
-                    // Auto-save every 30 seconds
+                    // Auto-save every 45s — light save skips economy reconcile hitch
                     this.autoSaveInterval = setInterval(() => {
-                        if (auth.currentSession) {
-                            auth.saveGameState();
+                        if (auth.currentSession || (window.MP && window.MP.token)) {
+                            const run = () => auth.saveGameState({ light: true });
+                            if (typeof requestIdleCallback === 'function') {
+                                requestIdleCallback(run, { timeout: 2500 });
+                            } else {
+                                setTimeout(run, 0);
+                            }
                         }
-                    }, 30000);
+                    }, 45000);
 
                     // World Boss HUD live-refresh (every 2s when active)
                     this.worldBossHUDInterval = setInterval(() => {
@@ -14824,6 +15356,7 @@ const SHIP_IMAGE_DATA = {
                         this.mapZoom = newZoom;
                         this.mapPan.x = (mx - cx) / this.mapZoom - worldX;
                         this.mapPan.y = (my - cy) / this.mapZoom - worldY;
+                        if (typeof this.bumpMapActivity === 'function') this.bumpMapActivity();
 
                         if (!this.mapAnimating) this.startMapAnimation();
                     };
@@ -14851,6 +15384,7 @@ const SHIP_IMAGE_DATA = {
                         const dy = (e.clientY - _lastY) / this.mapZoom;
                         this.mapPan.x += dx;
                         this.mapPan.y += dy;
+                        if (typeof this.bumpMapActivity === 'function') this.bumpMapActivity();
                         _lastX = e.clientX;
                         _lastY = e.clientY;
                         if (!this.mapAnimating) this.startMapAnimation();
@@ -14883,6 +15417,7 @@ const SHIP_IMAGE_DATA = {
                             const dy = (e.touches[0].clientY - _lastTouchY) / this.mapZoom;
                             this.mapPan.x += dx;
                             this.mapPan.y += dy;
+                            if (typeof this.bumpMapActivity === 'function') this.bumpMapActivity();
                             _lastTouchX = e.touches[0].clientX;
                             _lastTouchY = e.touches[0].clientY;
                             if (!this.mapAnimating) this.startMapAnimation();
@@ -14894,6 +15429,7 @@ const SHIP_IMAGE_DATA = {
                             if (_lastPinchDist !== null) {
                                 const pinchFactor = dist / _lastPinchDist;
                                 this.mapZoom = Math.min(Math.max(this.mapZoom * pinchFactor, 0.02), 50);
+                                if (typeof this.bumpMapActivity === 'function') this.bumpMapActivity();
                                 if (!this.mapAnimating) this.startMapAnimation();
                             }
                             _lastPinchDist = dist;
@@ -14918,9 +15454,17 @@ const SHIP_IMAGE_DATA = {
                 }
             }
             
+            bumpMapActivity() {
+                this._mapLastActivity = Date.now();
+                this._mapDirty = true;
+                this._fogDirty = true;
+                if (!this.mapAnimating && !document.hidden) this.startMapAnimation();
+            }
+
             startMapAnimation() {
                 if (this.mapAnimating) return;
                 this.mapAnimating = true;
+                this._mapLastActivity = Date.now();
                 
                 // Pause animation when tab is hidden to save CPU
                 if (!this._visibilityHandler) {
@@ -14935,17 +15479,29 @@ const SHIP_IMAGE_DATA = {
                 }
                 
                 let _lastMapFrame = 0;
-                const _mapFps = 1000 / 30; // cap at 30fps
+                const isMobile = () => window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
                 const animate = (timestamp) => {
                     if (!this.mapAnimating) return;
-                    if (timestamp - _lastMapFrame >= _mapFps) {
+                    const traveling = (this.mapFleetMarkers || []).some(m => m && m.traveling && m.endTime > Date.now());
+                    const idleMs = Date.now() - (this._mapLastActivity || 0);
+                    // Stop spinning the GPU when the map is static
+                    if (!traveling && idleMs > 1800 && !this._mapDirty) {
+                        this.updateMapFrame(); // one final crisp frame
+                        this.stopMapAnimation();
+                        return;
+                    }
+                    const targetFps = traveling ? (isMobile() ? 20 : 30)
+                        : (idleMs > 400 ? (isMobile() ? 12 : 20) : (isMobile() ? 24 : 30));
+                    const frameMs = 1000 / targetFps;
+                    if (timestamp - _lastMapFrame >= frameMs) {
                         _lastMapFrame = timestamp;
+                        this._mapDirty = false;
                         this.updateMapFrame();
                     }
                     requestAnimationFrame(animate);
                 };
                 
-                animate();
+                requestAnimationFrame(animate);
             }
             
             stopMapAnimation() {
@@ -15091,18 +15647,23 @@ const SHIP_IMAGE_DATA = {
                 // Blit baked star field each frame — zero gradient allocations
                 ctx.drawImage(this.starFieldCanvas, 0, 0);
 
-                // Parallax shift overlay for twinkling — lightweight dot pass only
-                this.starField.layers.forEach((layer) => {
-                    layer.stars.forEach(star => {
-                        const parallaxFactor = layer.speed * 50;
-                        const x = (star.x + this.mapPan.x * parallaxFactor) % canvas.width;
-                        const y = (star.y + this.mapPan.y * parallaxFactor) % canvas.height;
-                        const twinkle = Math.sin(this.starField.time * star.twinkleSpeed + star.twinkleOffset);
-                        const alpha = layer.brightness * (0.5 + twinkle * 0.5);
-                        ctx.fillStyle = layer.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
-                        ctx.fillRect(x - layer.size/2, y - layer.size/2, layer.size, layer.size);
+                // Parallax twinkle — skip on mobile (baked field is enough)
+                this._mapTwinkleTick = (this._mapTwinkleTick || 0) + 1;
+                const _skipTwinkle = (window.matchMedia && window.matchMedia('(max-width: 900px)').matches)
+                    || (this._mapTwinkleTick % 2 === 0);
+                if (!_skipTwinkle) {
+                    this.starField.layers.forEach((layer) => {
+                        layer.stars.forEach(star => {
+                            const parallaxFactor = layer.speed * 50;
+                            const x = (star.x + this.mapPan.x * parallaxFactor) % canvas.width;
+                            const y = (star.y + this.mapPan.y * parallaxFactor) % canvas.height;
+                            const twinkle = Math.sin(this.starField.time * star.twinkleSpeed + star.twinkleOffset);
+                            const alpha = layer.brightness * (0.5 + twinkle * 0.5);
+                            ctx.fillStyle = layer.color + Math.floor(alpha * 255).toString(16).padStart(2, '0');
+                            ctx.fillRect(x - layer.size/2, y - layer.size/2, layer.size, layer.size);
+                        });
                     });
-                });
+                }
                 
                 // Draw distant galaxies/nebula spots — baked into starFieldCanvas on init/resize
                 if (!this.nebulaeSpots) {
@@ -18794,10 +19355,12 @@ const SHIP_IMAGE_DATA = {
                     alwaysVisible: !!opts.alwaysVisible || side === 'player' || side === 'guild',
                 };
                 this.mapFleetMarkers.push(marker);
+                this._stationaryFleetDirty = true;
                 if (side === 'player' && this.guildId) {
                     this.publishGuildFleetTravel(marker);
                 }
-                if (!this.mapAnimating && typeof this.startMapAnimation === 'function') {
+                if (typeof this.bumpMapActivity === 'function') this.bumpMapActivity();
+                else if (!this.mapAnimating && typeof this.startMapAnimation === 'function') {
                     this.startMapAnimation();
                 }
                 return marker.id;
@@ -18809,12 +19372,7 @@ const SHIP_IMAGE_DATA = {
                     const me = this.playerData?.username;
                     if (!me) return;
                     const key = `fu_guildFleets_${this.guildId}`;
-                    let list = [];
-                    try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
-                    if (!Array.isArray(list)) list = [];
-                    const now = Date.now();
-                    list = list.filter(m => m && m.endTime > now - 1000 && m.owner !== me);
-                    list.push({
+                    const entry = {
                         id: `guild_${me}_${marker.id}`,
                         from: marker.from,
                         to: marker.to,
@@ -18828,7 +19386,24 @@ const SHIP_IMAGE_DATA = {
                         owner: me,
                         traveling: true,
                         alwaysVisible: true
-                    });
+                    };
+                    if (window.MP && window.MP.token) {
+                        window.MP.getWorld(key).then((res) => {
+                            let list = (res && res.value && Array.isArray(res.value.list)) ? res.value.list : [];
+                            const now = Date.now();
+                            list = list.filter(m => m && m.endTime > now - 1000 && m.owner !== me);
+                            list.push(entry);
+                            if (list.length > 40) list = list.slice(-40);
+                            return window.MP.putWorld(key, { list });
+                        }).catch(() => {});
+                        return;
+                    }
+                    let list = [];
+                    try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
+                    if (!Array.isArray(list)) list = [];
+                    const now = Date.now();
+                    list = list.filter(m => m && m.endTime > now - 1000 && m.owner !== me);
+                    list.push(entry);
                     if (list.length > 40) list = list.slice(-40);
                     localStorage.setItem(key, JSON.stringify(list));
                     localStorage.setItem(`fu_guildFleetsUpdate_${this.guildId}`, String(now));
@@ -18840,32 +19415,45 @@ const SHIP_IMAGE_DATA = {
                     if (!this.guildId) return;
                     const me = this.playerData?.username;
                     const key = `fu_guildFleets_${this.guildId}`;
+                    const applyList = (list) => {
+                        if (!Array.isArray(list) || !list.length) return;
+                        this.ensureMapFleetMarkers();
+                        const now = Date.now();
+                        const existing = new Set((this.mapFleetMarkers || []).map(m => m.id));
+                        list.forEach(shared => {
+                            if (!shared || !shared.id || shared.owner === me) return;
+                            if (shared.endTime <= now) return;
+                            if (existing.has(shared.id)) {
+                                const live = this.mapFleetMarkers.find(m => m.id === shared.id);
+                                if (live) {
+                                    live.endTime = shared.endTime;
+                                    live.from = shared.from;
+                                    live.to = shared.to;
+                                }
+                                return;
+                            }
+                            this.mapFleetMarkers.push({
+                                ...shared,
+                                side: 'guild',
+                                color: shared.color || this.getMapFleetSideColor('guild'),
+                                traveling: true,
+                                alwaysVisible: true
+                            });
+                        });
+                    };
+                    if (window.MP && window.MP.token) {
+                        const now = Date.now();
+                        if (this._lastGuildFleetPoll && now - this._lastGuildFleetPoll < 3000) return;
+                        this._lastGuildFleetPoll = now;
+                        window.MP.getWorld(key).then((res) => {
+                            const list = (res && res.value && Array.isArray(res.value.list)) ? res.value.list : [];
+                            applyList(list);
+                        }).catch(() => {});
+                        return;
+                    }
                     let list = [];
                     try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
-                    if (!Array.isArray(list) || !list.length) return;
-                    this.ensureMapFleetMarkers();
-                    const now = Date.now();
-                    const existing = new Set((this.mapFleetMarkers || []).map(m => m.id));
-                    list.forEach(shared => {
-                        if (!shared || !shared.id || shared.owner === me) return;
-                        if (shared.endTime <= now) return;
-                        if (existing.has(shared.id)) {
-                            const live = this.mapFleetMarkers.find(m => m.id === shared.id);
-                            if (live) {
-                                live.endTime = shared.endTime;
-                                live.from = shared.from;
-                                live.to = shared.to;
-                            }
-                            return;
-                        }
-                        this.mapFleetMarkers.push({
-                            ...shared,
-                            side: 'guild',
-                            color: shared.color || this.getMapFleetSideColor('guild'),
-                            traveling: true,
-                            alwaysVisible: true
-                        });
-                    });
+                    applyList(list);
                 } catch (e) { /* ignore */ }
             }
 
@@ -19043,7 +19631,17 @@ const SHIP_IMAGE_DATA = {
                 this.pruneExpiredMapFleetMarkers();
                 const now = Date.now();
                 const traveling = (this.mapFleetMarkers || []).filter(m => m && m.traveling && m.endTime >= now);
-                const stationary = this.collectStationaryMapFleets(now);
+                if (traveling.length && typeof this.bumpMapActivity === 'function') {
+                    // Keep map loop alive while fleets are in transit
+                    this._mapLastActivity = Date.now();
+                }
+                if (!this._stationaryFleetCache || this._stationaryFleetDirty
+                    || !this._stationaryFleetCacheAt || now - this._stationaryFleetCacheAt > 1000) {
+                    this._stationaryFleetCache = this.collectStationaryMapFleets(now);
+                    this._stationaryFleetCacheAt = now;
+                    this._stationaryFleetDirty = false;
+                }
+                const stationary = this._stationaryFleetCache || [];
                 const all = traveling.concat(stationary);
                 if (!all.length) return;
 
@@ -19139,56 +19737,77 @@ const SHIP_IMAGE_DATA = {
                 const ownedPlanets = this.planets.filter(p => this._isMyPlanet(p));
                 if (ownedPlanets.length === 0) return;
 
-                // Punch sensor holes with destination-out on an offscreen layer.
-                // evenodd clip incorrectly re-fogs overlapping sensor circles
-                // (rect+c1+c2 = odd coverage → fog in the intersection).
+                const mobile = window.matchMedia && window.matchMedia('(max-width: 900px)').matches;
+                const fogKey = [
+                    canvas.width, canvas.height,
+                    this.mapPan.x.toFixed(2), this.mapPan.y.toFixed(2), this.mapZoom.toFixed(4),
+                    ownedPlanets.length, ownedPlanets.map(p => p.id).join(','),
+                    mobile ? 'm' : 'd'
+                ].join('|');
+
                 if (!this._fogCanvas) this._fogCanvas = document.createElement('canvas');
                 const fog = this._fogCanvas;
-                if (fog.width !== canvas.width || fog.height !== canvas.height) {
-                    fog.width = canvas.width;
-                    fog.height = canvas.height;
-                }
-                const fctx = fog.getContext('2d');
-                fctx.setTransform(1, 0, 0, 1, 0, 0);
-                fctx.globalCompositeOperation = 'source-over';
-                fctx.globalAlpha = 1;
-                fctx.clearRect(0, 0, fog.width, fog.height);
-                fctx.fillStyle = 'rgba(0, 0, 12, 0.93)';
-                fctx.fillRect(0, 0, fog.width, fog.height);
+                const needRebuild = this._fogDirty || this._fogKey !== fogKey
+                    || fog.width !== canvas.width || fog.height !== canvas.height;
 
-                fctx.globalCompositeOperation = 'destination-out';
-                for (const planet of ownedPlanets) {
-                    const sx = centerX + (planet.position.x + this.mapPan.x) * this.mapZoom;
-                    const sy = centerY + (planet.position.y + this.mapPan.y) * this.mapZoom;
-                    const sr = this.getSensorRadius(planet) * this.mapZoom;
-                    if (!(sr > 0)) continue;
-                    // Soft rim so vision fades at the edge; overlaps correctly form a union
-                    const inner = Math.max(0, sr * 0.88);
-                    const g = fctx.createRadialGradient(sx, sy, inner, sx, sy, sr);
-                    g.addColorStop(0, 'rgba(0,0,0,1)');
-                    g.addColorStop(1, 'rgba(0,0,0,0)');
-                    fctx.fillStyle = g;
-                    fctx.beginPath();
-                    fctx.arc(sx, sy, sr, 0, Math.PI * 2);
-                    fctx.fill();
+                if (needRebuild) {
+                    if (fog.width !== canvas.width || fog.height !== canvas.height) {
+                        fog.width = canvas.width;
+                        fog.height = canvas.height;
+                    }
+                    const fctx = fog.getContext('2d');
+                    fctx.setTransform(1, 0, 0, 1, 0, 0);
+                    fctx.globalCompositeOperation = 'source-over';
+                    fctx.globalAlpha = 1;
+                    fctx.clearRect(0, 0, fog.width, fog.height);
+                    fctx.fillStyle = 'rgba(0, 0, 12, 0.93)';
+                    fctx.fillRect(0, 0, fog.width, fog.height);
+
+                    fctx.globalCompositeOperation = 'destination-out';
+                    for (const planet of ownedPlanets) {
+                        const sx = centerX + (planet.position.x + this.mapPan.x) * this.mapZoom;
+                        const sy = centerY + (planet.position.y + this.mapPan.y) * this.mapZoom;
+                        const sr = this.getSensorRadius(planet) * this.mapZoom;
+                        if (!(sr > 0)) continue;
+                        if (mobile) {
+                            // Solid punch — much cheaper than per-planet gradients on phones
+                            fctx.fillStyle = 'rgba(0,0,0,1)';
+                            fctx.beginPath();
+                            fctx.arc(sx, sy, sr, 0, Math.PI * 2);
+                            fctx.fill();
+                        } else {
+                            const inner = Math.max(0, sr * 0.88);
+                            const g = fctx.createRadialGradient(sx, sy, inner, sx, sy, sr);
+                            g.addColorStop(0, 'rgba(0,0,0,1)');
+                            g.addColorStop(1, 'rgba(0,0,0,0)');
+                            fctx.fillStyle = g;
+                            fctx.beginPath();
+                            fctx.arc(sx, sy, sr, 0, Math.PI * 2);
+                            fctx.fill();
+                        }
+                    }
+                    fctx.globalCompositeOperation = 'source-over';
+                    this._fogKey = fogKey;
+                    this._fogDirty = false;
                 }
-                fctx.globalCompositeOperation = 'source-over';
+
                 ctx.drawImage(fog, 0, 0);
 
-                // Thin sensor rim (stroke only — fill glows stacked into a bright blue blob)
-                ctx.save();
-                ctx.strokeStyle = 'rgba(0, 180, 255, 0.28)';
-                ctx.lineWidth = Math.max(1, Math.min(2.5, 1.25 * this.mapZoom));
-                for (const planet of ownedPlanets) {
-                    const sx = centerX + (planet.position.x + this.mapPan.x) * this.mapZoom;
-                    const sy = centerY + (planet.position.y + this.mapPan.y) * this.mapZoom;
-                    const sr = this.getSensorRadius(planet) * this.mapZoom;
-                    if (!(sr > 0)) continue;
-                    ctx.beginPath();
-                    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
-                    ctx.stroke();
+                if (!mobile) {
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(0, 180, 255, 0.28)';
+                    ctx.lineWidth = Math.max(1, Math.min(2.5, 1.25 * this.mapZoom));
+                    for (const planet of ownedPlanets) {
+                        const sx = centerX + (planet.position.x + this.mapPan.x) * this.mapZoom;
+                        const sy = centerY + (planet.position.y + this.mapPan.y) * this.mapZoom;
+                        const sr = this.getSensorRadius(planet) * this.mapZoom;
+                        if (!(sr > 0)) continue;
+                        ctx.beginPath();
+                        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                    ctx.restore();
                 }
-                ctx.restore();
             }
 
             // ═══════════════════════════════════════════════
@@ -21394,7 +22013,7 @@ const SHIP_IMAGE_DATA = {
                 return entries[entries.length - 1].artifact;
             }
 
-            processArtifactFind(artifact, planetName) {
+            async processArtifactFind(artifact, planetName) {
                 // Show image popup modal
                 this.showArtifactModal(artifact, planetName);
                 
@@ -21511,6 +22130,33 @@ const SHIP_IMAGE_DATA = {
                         type: artifact.type || 'unknown'
                     });
                     this.showNotification(`✨ Found: ${artifact.name}!`);
+                }
+
+                // Persist loot on the server (PUT /state cannot invent inventory)
+                if (window.MP && window.MP.token && typeof serverEconomyGrant === 'function') {
+                    const grant = { reason: 'search', resources: {}, inventoryAdd: [] };
+                    if (artifact.type === 'instant') {
+                        if (artifact.effect === 'researchPoints') {
+                            grant.resources.researchPoints = artifact.value || 0;
+                        } else if (artifact.effect === 'food') {
+                            grant.resources.food = Math.max(0, artifact.value || 0);
+                        }
+                    } else {
+                        const last = (this.inventory || [])[(this.inventory || []).length - 1];
+                        if (last && last.artifactId === artifact.id) {
+                            grant.inventoryAdd.push({
+                                id: last.id,
+                                artifactId: last.artifactId,
+                                quantity: Math.max(1, Number(last.quantity) || 1),
+                                source: 'search',
+                                planetName: planetName,
+                            });
+                        }
+                    }
+                    if ((grant.inventoryAdd && grant.inventoryAdd.length) ||
+                        Object.values(grant.resources).some((v) => v > 0)) {
+                        serverEconomyGrant(grant).catch(() => {});
+                    }
                 }
             }
             
@@ -23903,8 +24549,24 @@ const SHIP_IMAGE_DATA = {
                     }
                 }
                 
-                this.updateResearchQueue();
-                this.renderResearch();
+                const shipQ = this.researchQueue && this.researchQueue.length;
+                const techQ = this.techResearchQueue && this.techResearchQueue.length;
+                if (shipQ || techQ) {
+                    this.updateResearchQueue();
+                } else if (this._researchDomNeedsEmpty) {
+                    this.updateResearchQueue();
+                    this._researchDomNeedsEmpty = false;
+                }
+                // Full available-list rebuild only when affordance/unlock set changes
+                const affordKey = [
+                    Math.floor((this.resources && this.resources.credits) || 0),
+                    Math.floor((this.resources && this.resources.metal) || 0),
+                    Object.keys(this.ships || {}).filter(k => this.ships[k] && this.ships[k].researched).length
+                ].join('|');
+                if (this._lastResearchAffordKey !== affordKey) {
+                    this._lastResearchAffordKey = affordKey;
+                    this.renderResearch();
+                }
               } catch(e) {
                 console.error('❌ updateResearch error:', e);
               }
@@ -23912,33 +24574,40 @@ const SHIP_IMAGE_DATA = {
             
             updateResearchQueue() {
                 const queue = document.getElementById('researchQueue');
-                console.log('updateResearchQueue called, queue length:', this.researchQueue.length);
-                
-                if (!queue) {
-                    console.error('Research queue element not found!');
-                    return;
-                }
+                if (!queue) return;
                 
                 if (this.researchQueue.length === 0) {
-                    queue.innerHTML = `
+                    if (queue.dataset.empty !== '1') {
+                        queue.dataset.empty = '1';
+                        queue.innerHTML = `
                         <div style="color: var(--text-secondary); font-size: 13px; text-align: center; padding: 20px;">
                             No active research. Select a ship from Available to begin.
-                        </div>
-                    `;
+                        </div>`;
+                    }
                 } else {
-                    console.log('Rendering research queue items:', this.researchQueue);
-                    queue.innerHTML = this.researchQueue.map(research => {
-                        const progress = ((research.totalTime - research.timeRemaining) / research.totalTime) * 100;
-                        return `
+                    queue.dataset.empty = '0';
+                    // Prefer in-place progress updates when structure matches
+                    const fills = queue.querySelectorAll('.progress-fill');
+                    const times = queue.querySelectorAll('.time-remaining');
+                    if (fills.length === this.researchQueue.length && times.length === this.researchQueue.length) {
+                        this.researchQueue.forEach((research, i) => {
+                            const progress = ((research.totalTime - research.timeRemaining) / research.totalTime) * 100;
+                            fills[i].style.width = progress + '%';
+                            times[i].textContent = this.formatTime(Math.ceil(research.timeRemaining / 60)) + ' remaining';
+                        });
+                    } else {
+                        queue.innerHTML = this.researchQueue.map(research => {
+                            const progress = ((research.totalTime - research.timeRemaining) / research.totalTime) * 100;
+                            return `
                             <div class="research-item" style="margin-bottom: 12px;">
                                 <div class="research-name">${research.icon} ${research.name}</div>
                                 <div class="progress-bar">
                                     <div class="progress-fill" style="width: ${progress}%"></div>
                                 </div>
                                 <div class="time-remaining">${this.formatTime(Math.ceil(research.timeRemaining / 60))} remaining</div>
-                            </div>
-                        `;
-                    }).join('');
+                            </div>`;
+                        }).join('');
+                    }
                 }
                 
                 this.updateResearchStats();
@@ -24321,7 +24990,7 @@ const SHIP_IMAGE_DATA = {
                 } catch (e) {}
             }
             
-            buildShips(shipName) {
+            async buildShips(shipName) {
                 const ship = this.ships[shipName];
                 const quantity = this.buildQuantities[shipName] || 1;
                 let metalMult = 1.0, creditMult = 1.0, timeMult = 1.0;
@@ -24336,8 +25005,16 @@ const SHIP_IMAGE_DATA = {
                 const totalCredits = Math.floor(ship.creditCost * quantity * creditMult);
                 
                 if (this.resources.metal >= totalMetal && this.resources.credits >= totalCredits) {
-                    this.resources.metal -= totalMetal;
-                    this.resources.credits -= totalCredits;
+                    if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
+                        const spent = await serverEconomySpend({ resources: { metal: totalMetal, credits: totalCredits } });
+                        if (!spent.ok) {
+                            this.showNotification('⚠️ ' + (spent.error || 'Cannot afford ships'));
+                            return;
+                        }
+                    } else {
+                        this.resources.metal -= totalMetal;
+                        this.resources.credits -= totalCredits;
+                    }
                     
                     // Add to build queue instead of instant build
                     // Build time: 1 second per 10 credits
@@ -24360,7 +25037,7 @@ const SHIP_IMAGE_DATA = {
                 }
             }
             
-            buildSpecialShip(shipName) {
+            async buildSpecialShip(shipName) {
                 // Find the special ship
                 const specialShips = this.getSpecialShips();
                 const ship = specialShips.find(s => s.name === shipName);
@@ -24384,10 +25061,20 @@ const SHIP_IMAGE_DATA = {
                     this.resources.he3 >= totalHe3 && 
                     this.resources.credits >= totalCredits) {
                     
-                    // Deduct resources
-                    this.resources.metal -= totalMetal;
-                    this.resources.he3 -= totalHe3;
-                    this.resources.credits -= totalCredits;
+                    // Deduct resources (server-authoritative when online)
+                    if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
+                        const spent = await serverEconomySpend({
+                            resources: { metal: totalMetal, he3: totalHe3, credits: totalCredits }
+                        });
+                        if (!spent.ok) {
+                            this.showNotification('⚠️ ' + (spent.error || 'Cannot afford ship'));
+                            return;
+                        }
+                    } else {
+                        this.resources.metal -= totalMetal;
+                        this.resources.he3 -= totalHe3;
+                        this.resources.credits -= totalCredits;
+                    }
                     
                     // Add to build queue
                     let buildTime = Math.floor(ship.time * quantity * timeMult);
@@ -24507,20 +25194,29 @@ const SHIP_IMAGE_DATA = {
             }
 
             saveInfectData() {
-                try {
-                    localStorage.setItem('viralCapturedShips', JSON.stringify(this.capturedShips || {}));
-                    localStorage.setItem('viralReverseEngineered', JSON.stringify(this.reverseEngineered || {}));
-                } catch(e) {}
+                // Persisted via getGameState() → MP /api/state (not localStorage)
+                if (typeof this.saveGameState === 'function') this.saveGameState();
             }
 
             loadInfectData() {
+                // Prefer server-backed fields already on this.*; migrate legacy localStorage once
                 try {
-                    this.capturedShips = JSON.parse(localStorage.getItem('viralCapturedShips') || '{}');
-                    this.reverseEngineered = JSON.parse(localStorage.getItem('viralReverseEngineered') || '{}');
+                    if (!this.capturedShips || !Object.keys(this.capturedShips).length) {
+                        const legacy = localStorage.getItem('viralCapturedShips');
+                        if (legacy) this.capturedShips = JSON.parse(legacy) || {};
+                    }
+                    if (!this.reverseEngineered || !Object.keys(this.reverseEngineered).length) {
+                        const legacy = localStorage.getItem('viralReverseEngineered');
+                        if (legacy) this.reverseEngineered = JSON.parse(legacy) || {};
+                    }
                 } catch(e) {
-                    this.capturedShips = {};
-                    this.reverseEngineered = {};
+                    this.capturedShips = this.capturedShips || {};
+                    this.reverseEngineered = this.reverseEngineered || {};
                 }
+                try {
+                    localStorage.removeItem('viralCapturedShips');
+                    localStorage.removeItem('viralReverseEngineered');
+                } catch(e) {}
                 // Re-apply reverse engineered ships as buildable
                 if (this.isViralRace()) {
                     Object.keys(this.reverseEngineered).forEach(shipName => {
@@ -24792,7 +25488,7 @@ const SHIP_IMAGE_DATA = {
                 }).join('');
             }
             
-            buildBuilding(buildingName) {
+            async buildBuilding(buildingName) {
                 if (!this.selectedPlanetForBuilding) return;
                 
                 const planet = this.selectedPlanetForBuilding;
@@ -24807,8 +25503,16 @@ const SHIP_IMAGE_DATA = {
                 if (this.resources.metal < bMetal || 
                     this.resources.credits < bCredits) return;
                 
-                this.resources.metal -= bMetal;
-                this.resources.credits -= bCredits;
+                if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
+                    const spent = await serverEconomySpend({ resources: { metal: bMetal, credits: bCredits } });
+                    if (!spent.ok) {
+                        this.showNotification('⚠️ ' + (spent.error || 'Cannot afford building'));
+                        return;
+                    }
+                } else {
+                    this.resources.metal -= bMetal;
+                    this.resources.credits -= bCredits;
+                }
                 const prevTier = this.getPlanetTierInfo(planet).tier;
                 planet.buildings[buildingName] = currentLevel + 1;
                 if (window.tutorialManager) window.tutorialManager.completeAction('build_building');
@@ -25223,6 +25927,15 @@ const SHIP_IMAGE_DATA = {
             generateResources() {
               try {
                 if (!this.selectedRace || !this.resources) return;
+                // Online: claim production on a slower cadence (not every second)
+                if (!document.hidden && window.MP && window.MP.token && typeof serverEconomyCollect === 'function') {
+                    if (!this._lastEconomyCollectAt) this._lastEconomyCollectAt = 0;
+                    if (Date.now() - this._lastEconomyCollectAt > 45000) {
+                        this._lastEconomyCollectAt = Date.now();
+                        serverEconomyCollect();
+                    }
+                }
+                if (document.hidden) return; // skip local sim work while backgrounded
                 // Unclustered owned planets produce directly; clustered ones produce via their cluster
                 const ownedPlanets = this.planets.filter(p => this._isMyPlanet(p) && !p.inCluster);
                 const ownedClusters = (this.clusters || []).filter(c =>
@@ -25874,16 +26587,12 @@ const SHIP_IMAGE_DATA = {
                 };
 
                 const artifactsRef = (typeof ARTIFACTS !== 'undefined') ? ARTIFACTS : {};
-                let craftedRecipes = {};
-                let craftingQueue  = [];
-                try {
-                    const saved = localStorage.getItem('fu_crafting_v1');
-                    if (saved) {
-                        const d = JSON.parse(saved);
-                        craftedRecipes = d.craftedRecipes || {};
-                        craftingQueue  = d.craftingQueue  || [];
-                    }
-                } catch(e) {}
+                let craftedRecipes = (window.craftingManager && window.craftingManager.getCraftedRecipes)
+                    ? (window.craftingManager.getCraftedRecipes() || {})
+                    : (this._craftedRecipes || {});
+                let craftingQueue  = (window.craftingManager && window.craftingManager.getCraftingQueue)
+                    ? (window.craftingManager.getCraftingQueue() || [])
+                    : (this._craftingQueue || []);
 
                 const matCount = document.getElementById('researchCraftingMatCount');
                 if (matCount) {
@@ -26813,7 +27522,7 @@ const SHIP_IMAGE_DATA = {
                 return !this.whyCannotResearchTech(techId);
             }
             
-            startTechResearch(techId) {
+            async startTechResearch(techId) {
                 const blocked = this.whyCannotResearchTech(techId);
                 if (blocked) {
                     this.showNotification(`⚠️ Cannot research: ${blocked}`);
@@ -26822,12 +27531,27 @@ const SHIP_IMAGE_DATA = {
                 
                 const tech = this.technologies[techId];
                 
-                // Deduct resources
-                this.resources.credits -= tech.cost.credits;
-                if (tech.cost.metal) this.resources.metal -= tech.cost.metal;
-                if (tech.cost.he3) this.resources.he3 -= tech.cost.he3;
-                if (tech.cost.food) this.resources.food -= tech.cost.food;
-                this.resources.researchPoints -= tech.cost.researchPoints;
+                // Deduct resources (server-authoritative when online)
+                const techCosts = {
+                    credits: tech.cost.credits || 0,
+                    metal: tech.cost.metal || 0,
+                    he3: tech.cost.he3 || 0,
+                    food: tech.cost.food || 0,
+                    researchPoints: tech.cost.researchPoints || 0,
+                };
+                if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
+                    const spent = await serverEconomySpend({ resources: techCosts });
+                    if (!spent.ok) {
+                        this.showNotification('⚠️ ' + (spent.error || 'Cannot afford research'));
+                        return;
+                    }
+                } else {
+                    this.resources.credits -= tech.cost.credits;
+                    if (tech.cost.metal) this.resources.metal -= tech.cost.metal;
+                    if (tech.cost.he3) this.resources.he3 -= tech.cost.he3;
+                    if (tech.cost.food) this.resources.food -= tech.cost.food;
+                    this.resources.researchPoints -= tech.cost.researchPoints;
+                }
                 
                 // Add to queue
                 tech.researching = true;
@@ -26839,6 +27563,7 @@ const SHIP_IMAGE_DATA = {
                     time: tech.time
                 });
                 
+                this._researchDomNeedsEmpty = true;
                 this.showNotification(`🔬 Research Started: ${tech.name}`);
                 if (window.tutorialManager) window.tutorialManager.completeAction('research');
                 this.updateDisplay();
@@ -27564,7 +28289,7 @@ const SHIP_IMAGE_DATA = {
                 document.body.appendChild(modal);
             }
             
-            confirmSellArtifact(itemId, price, currency = 'credits') {
+            async confirmSellArtifact(itemId, price, currency = 'credits') {
                 const item = this.inventory.find(i => i.id == itemId);
                 if (!item) return;
                 
@@ -27577,22 +28302,21 @@ const SHIP_IMAGE_DATA = {
                 }
 
                 const payCurrency = (currency === 'horizonCoins') ? 'horizonCoins' : 'credits';
+                const online = !!(window.MP && window.MP.token && window.MP.marketListArtifact);
 
-                // Escrow one unit from the stack onto the market listing
-                this.consumeInventoryItemById(itemId, 1);
-
-                // Remove permanent bonuses if applicable
-                if (artifactDef.type === 'permanent' && artifactDef.bonuses) {
-                    if (artifactDef.bonuses.food) {
-                        this.artifactBonuses.food = Math.max(0, (this.artifactBonuses.food || 0) - artifactDef.bonuses.food);
-                    }
-                    if (artifactDef.bonuses.populationGrowth) {
-                        this.artifactBonuses.populationGrowth = Math.max(0, (this.artifactBonuses.populationGrowth || 0) - artifactDef.bonuses.populationGrowth);
+                if (!online) {
+                    this.consumeInventoryItemById(itemId, 1);
+                    if (artifactDef.type === 'permanent' && artifactDef.bonuses) {
+                        if (artifactDef.bonuses.food) {
+                            this.artifactBonuses.food = Math.max(0, (this.artifactBonuses.food || 0) - artifactDef.bonuses.food);
+                        }
+                        if (artifactDef.bonuses.populationGrowth) {
+                            this.artifactBonuses.populationGrowth = Math.max(0, (this.artifactBonuses.populationGrowth || 0) - artifactDef.bonuses.populationGrowth);
+                        }
                     }
                 }
 
-                // Create market listing (artifact stays on market until bought or cancelled)
-                marketManager.createArtifactListing(
+                const result = await marketManager.createArtifactListing(
                     this.playerData.username,
                     artifactDef.id,
                     artifactDef.name,
@@ -27601,6 +28325,19 @@ const SHIP_IMAGE_DATA = {
                     itemId,
                     payCurrency
                 );
+                if (!result.success) {
+                    this.showNotification(`⚠️ ${result.error || 'Listing failed'}`);
+                    return;
+                }
+
+                if (online && artifactDef.type === 'permanent' && artifactDef.bonuses) {
+                    if (artifactDef.bonuses.food) {
+                        this.artifactBonuses.food = Math.max(0, (this.artifactBonuses.food || 0) - artifactDef.bonuses.food);
+                    }
+                    if (artifactDef.bonuses.populationGrowth) {
+                        this.artifactBonuses.populationGrowth = Math.max(0, (this.artifactBonuses.populationGrowth || 0) - artifactDef.bonuses.populationGrowth);
+                    }
+                }
 
                 const priceLabel = payCurrency === 'horizonCoins'
                     ? `💎 ${Number(price).toLocaleString()} Horizon Coins`
@@ -28008,7 +28745,7 @@ const SHIP_IMAGE_DATA = {
                             baselinePlanets: Math.max(1, snap.planets),
                             baselineFleet: Math.max(1, snap.fleet),
                         });
-                        hooks.consumeIngredients(recipe);
+                        await hooks.consumeIngredients(recipe);
                         const durationMs = res.craftMs || (recipe.craftTime * 1000);
                         const startTime = Date.now();
                         hooks.craftingQueue.push({
@@ -28850,14 +29587,17 @@ const SHIP_IMAGE_DATA = {
                         throw new Error('Multiplayer login returned no account');
                     }
                     console.log('✅ MP login successful!', mpPlayer.username);
+                    if (window.auth) window.auth.currentSession = MP.token;
                     await mpConnectSocket();
-                    const { state } = await MP.loadState().catch(() => ({ state: {} }));
+                    const loaded = await MP.loadState().catch(() => ({ state: {}, horizonCoins: null }));
+                    const state = (loaded && loaded.state && typeof loaded.state === 'object') ? { ...loaded.state } : {};
+                    if (loaded && loaded.horizonCoins != null) state.horizonCoins = loaded.horizonCoins;
                     startGameSession({
                         username: mpPlayer.username,
                         race: mpPlayer.race,
                         accountType: normalizeAccountType(mpPlayer.accountType),
                         sessionToken: MP.token,
-                        ...state, // saved fleets/planets/resources/etc, if any
+                        gameState: state, // nested — loadPlayerData expects gameState.*
                     });
                 }).catch((mpErr) => {
                     console.warn('[MP] login failed, falling back to local auth:', mpErr && mpErr.message);
@@ -29003,8 +29743,18 @@ const SHIP_IMAGE_DATA = {
                         throw new Error('Multiplayer register returned no account');
                     }
                     console.log('✅ MP account created!', mpPlayer.username);
+                    if (window.auth) window.auth.currentSession = MP.token;
                     await mpConnectSocket();
-                    startGameSession({ username: mpPlayer.username, race: mpPlayer.race, accountType: normalizeAccountType(mpPlayer.accountType), sessionToken: MP.token });
+                    // Seed empty server save with starter HC so refresh doesn't invent a new empire blob
+                    const starter = { horizonCoins: 500, inventory: [], resources: {} };
+                    try { await MP.saveState(starter); } catch (e) { console.warn('[MP] seed save failed:', e.message); }
+                    startGameSession({
+                        username: mpPlayer.username,
+                        race: mpPlayer.race,
+                        accountType: normalizeAccountType(mpPlayer.accountType),
+                        sessionToken: MP.token,
+                        gameState: starter,
+                    });
                 }).catch((mpErr) => {
                     console.warn('[MP] register failed, falling back to local auth:', mpErr && mpErr.message);
                     try {
@@ -30193,45 +30943,63 @@ const SHIP_IMAGE_DATA = {
                     { file: 'LootMusic/emmraan-ready-to-fight-282932.mp3',                                   title: 'Ready to Fight',                 artist: 'Emmraan' },
                 ];
                 this.discPool = discPool;
-                // Seed the disc pool into localStorage if not already seeded
-                {
-                    const existing = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]');
-                    const byFile = {};
-                    existing.forEach(t => {
-                        if (!t || !t.file) return;
-                        const fixed = Object.assign({}, t, { file: String(t.file).replace(/^audio\//, 'LootMusic/') });
-                        byFile[fixed.file] = fixed;
-                    });
-                    discPool.forEach(t => { byFile[t.file] = t; });
-                    localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(Object.values(byFile)));
-                }
-
-                // Load any bonus tracks saved from disc discoveries (repair legacy audio/ paths)
-                const saved = localStorage.getItem('fu_audio_bonus_tracks');
-                if (saved) {
-                    try {
-                        const bonus = JSON.parse(saved);
-                        const repaired = [];
+                // Disc pool lives on the instance; bonus unlocks come from server game state
+                this._bonusTracks = [];
+                try {
+                    const legacyBonus = localStorage.getItem('fu_audio_bonus_tracks');
+                    if (legacyBonus) {
+                        const bonus = JSON.parse(legacyBonus);
                         bonus.forEach(t => {
                             if (!t || !t.file) return;
                             const fixed = Object.assign({}, t, { file: this._normalizeTrackPath(t.file) });
+                            this._bonusTracks.push(fixed);
                             this.tracks.push(fixed);
                             this.playlist.push(this.tracks.length - 1);
-                            repaired.push(fixed);
                         });
-                        localStorage.setItem('fu_audio_bonus_tracks', JSON.stringify(repaired));
-                    } catch(e) {}
-                }
-
-                // One-time migrate any leftover audio/ references in the disc pool storage
-                try {
-                    const pool = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]');
-                    const migrated = pool.map(t => t && t.file ? Object.assign({}, t, { file: this._normalizeTrackPath(t.file) }) : t).filter(Boolean);
-                    localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(migrated));
+                        localStorage.removeItem('fu_audio_bonus_tracks');
+                        localStorage.removeItem('fu_audio_disc_tracks');
+                        this._persistAudioToGame();
+                    }
                 } catch (e) {}
 
                 this.updateButton();
                 console.log('🎵 Audio Manager initialized');
+            }
+
+            _persistAudioToGame() {
+                if (!window.game) return;
+                window.game._audioDiscTracks = (this.discPool || []).slice();
+                window.game._audioBonusTracks = (this._bonusTracks || []).slice();
+                if (typeof window.game.saveGameState === 'function') window.game.saveGameState();
+            }
+
+            hydrateFromGameState(discTracks, bonusTracks) {
+                if (Array.isArray(discTracks) && discTracks.length) {
+                    // Merge server disc pool into local catalog (keep defaults)
+                    const byFile = {};
+                    (this.discPool || []).forEach(t => { if (t && t.file) byFile[t.file] = t; });
+                    discTracks.forEach(t => {
+                        if (!t || !t.file) return;
+                        byFile[this._normalizeTrackPath(t.file)] = Object.assign({}, t, {
+                            file: this._normalizeTrackPath(t.file)
+                        });
+                    });
+                    this.discPool = Object.values(byFile);
+                }
+                const bonus = Array.isArray(bonusTracks) ? bonusTracks : [];
+                this._bonusTracks = [];
+                const already = new Set(this.tracks.map(t => t.file));
+                bonus.forEach(t => {
+                    if (!t || !t.file) return;
+                    const fixed = Object.assign({}, t, { file: this._normalizeTrackPath(t.file) });
+                    this._bonusTracks.push(fixed);
+                    if (!already.has(fixed.file)) {
+                        this.tracks.push(fixed);
+                        this.playlist.push(this.tracks.length - 1);
+                        already.add(fixed.file);
+                    }
+                });
+                try { this.updatePlayerUI(); } catch (e) {}
             }
 
             _normalizeTrackPath(file) {
@@ -30529,17 +31297,13 @@ const SHIP_IMAGE_DATA = {
 
             // Called when player uses an Ancient Audio Disc. Returns true if a track unlocked.
             useAudioDisc(itemId) {
-                let bonusTracks = [];
-                try { bonusTracks = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]'); } catch (e) { bonusTracks = []; }
-                if ((!bonusTracks || !bonusTracks.length) && this.discPool && this.discPool.length) {
-                    bonusTracks = this.discPool.slice();
-                }
-                if (!bonusTracks.length) {
+                let pool = (this.discPool && this.discPool.length) ? this.discPool.slice() : [];
+                if (!pool.length) {
                     if (window.game) window.game.showNotification('📀 Ancient Audio Disc: No new tracks available yet.');
                     return false;
                 }
                 const already = this.tracks.map(t => t.file);
-                const unseen  = bonusTracks.filter(t => t && t.file && !already.includes(t.file));
+                const unseen  = pool.filter(t => t && t.file && !already.includes(t.file));
                 if (unseen.length === 0) {
                     if (window.game) window.game.showNotification('📀 All disc tracks already unlocked!');
                     return false;
@@ -30547,9 +31311,9 @@ const SHIP_IMAGE_DATA = {
                 const pick = unseen[Math.floor(Math.random() * unseen.length)];
                 this.tracks.push(pick);
                 this.playlist.push(this.tracks.length - 1);
-                const saved = JSON.parse(localStorage.getItem('fu_audio_bonus_tracks') || '[]');
-                saved.push(pick);
-                localStorage.setItem('fu_audio_bonus_tracks', JSON.stringify(saved));
+                if (!this._bonusTracks) this._bonusTracks = [];
+                this._bonusTracks.push(pick);
+                this._persistAudioToGame();
                 if (window.game) window.game.showNotification(`🎵 Ancient Audio Disc unlocked: "${pick.title}" by ${pick.artist}!`);
                 this.updatePlayerUI();
                 return true;
@@ -30573,9 +31337,9 @@ const SHIP_IMAGE_DATA = {
 
             // Add a future track to the discoverable disc pool
             addDiscTrack(file, title, artist) {
-                const pool = JSON.parse(localStorage.getItem('fu_audio_disc_tracks') || '[]');
-                pool.push({ file, title, artist });
-                localStorage.setItem('fu_audio_disc_tracks', JSON.stringify(pool));
+                if (!this.discPool) this.discPool = [];
+                this.discPool.push({ file, title, artist });
+                this._persistAudioToGame();
             }
 
             // ── Player Panel UI ─────────────────────────────────────────
@@ -32541,7 +33305,11 @@ window.tutorialManager = (() => {
         el('tutorialOverlay').style.display  = 'none';
         el('tutorialSpotlight').style.display = 'none';
         el('tutorialDialog').style.display    = 'none';
-        localStorage.setItem('fu_tutorial_done', '1');
+        if (window.game) {
+            window.game._tutorialDone = true;
+            if (typeof window.game.saveGameState === 'function') window.game.saveGameState();
+        }
+        try { localStorage.removeItem('fu_tutorial_done'); } catch (e) {}
         if (window.game) {
             window.game.showNotification('🏆 Tutorial complete! Good luck, Commander.');
         }
@@ -32796,14 +33564,14 @@ window.tutorialManager = (() => {
         const login = document.getElementById('loginScreen');
         if (!window.game) return;
         if (login && login.style.display !== 'none') return;
-        if (localStorage.getItem('fu_tutorial_done')) return;
+        if (window.game && window.game._tutorialDone) return;
         if (active || tutorialStartTimer) return;
         tutorialStartTimer = setTimeout(() => {
             tutorialStartTimer = null;
             const screen = document.getElementById('loginScreen');
             if (active || !window.game) return;
             if (screen && screen.style.display !== 'none') return;
-            if (localStorage.getItem('fu_tutorial_done')) return;
+            if (window.game && window.game._tutorialDone) return;
             start();
         }, 600);
     }
@@ -33641,22 +34409,36 @@ window.tutorialManager = (() => {
         let craftedRecipes  = {};   // { recipeId: true } — one-time completions
         let queueInterval   = null;
 
-        // ── Persistence ────────────────────────────────────────────────
+        // ── Persistence (server via Game.getGameState — not localStorage) ─
         function loadState() {
+            // Legacy one-time migrate if game has not hydrated yet
             try {
                 const raw = localStorage.getItem(CRAFTING_SAVE_KEY);
                 if (!raw) return;
                 const s = JSON.parse(raw);
-                craftedRecipes = s.craftedRecipes || {};
-                craftingQueue  = s.craftingQueue  || [];
+                if (!Object.keys(craftedRecipes).length) craftedRecipes = s.craftedRecipes || {};
+                if (!craftingQueue.length) craftingQueue = s.craftingQueue || [];
+                localStorage.removeItem(CRAFTING_SAVE_KEY);
             } catch(e) {}
         }
 
         function saveState() {
-            try {
-                localStorage.setItem(CRAFTING_SAVE_KEY, JSON.stringify({ craftedRecipes, craftingQueue }));
-            } catch(e) {}
+            if (window.game) {
+                window.game._craftedRecipes = craftedRecipes;
+                window.game._craftingQueue = craftingQueue;
+                if (typeof window.game.saveGameState === 'function') window.game.saveGameState();
+            }
         }
+
+        function hydrateFromGameState(recipes, queue) {
+            craftedRecipes = recipes || {};
+            craftingQueue = Array.isArray(queue) ? queue : [];
+            if (craftingQueue.length > 0) startQueueTimer();
+            try { render(); } catch (e) {}
+        }
+
+        function getCraftedRecipes() { return craftedRecipes; }
+        function getCraftingQueue() { return craftingQueue; }
 
         // ── Inventory helpers ───────────────────────────────────────────
         function getMatCount(artifactId) {
@@ -33681,7 +34463,22 @@ window.tutorialManager = (() => {
             return true;
         }
 
-        function consumeIngredients(recipe) {
+        async function consumeIngredients(recipe) {
+            const inventoryRemove = (recipe.ingredients || []).map((ing) => ({
+                artifactId: ing.artifactId,
+                quantity: ing.qty,
+            }));
+            const resources = {
+                credits: recipe.creditCost || 0,
+                metal: recipe.metalCost || 0,
+                he3: recipe.he3Cost || 0,
+            };
+            if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
+                const spent = await serverEconomySpend({ resources, inventoryRemove });
+                if (!spent.ok) throw new Error(spent.error || 'Cannot afford craft');
+                window.game.updateResources();
+                return;
+            }
             for (const ing of recipe.ingredients) {
                 if (typeof window.game.removeInventoryQuantity === 'function') {
                     window.game.removeInventoryQuantity(ing.artifactId, ing.qty);
@@ -33883,7 +34680,7 @@ window.tutorialManager = (() => {
 
 
         // ── Craft action ────────────────────────────────────────────────
-        function craft(recipeId) {
+        async function craft(recipeId) {
             let recipe = CRAFTING_RECIPES[recipeId];
             // Fallback when recipe.id was missing and the button called craft('undefined')
             if (!recipe) {
@@ -33933,7 +34730,7 @@ window.tutorialManager = (() => {
             }
 
             // Consume materials immediately, begin timer
-            consumeIngredients(recipe);
+            await consumeIngredients(recipe);
             craftingQueue.push({ recipeId, startTime: Date.now(), duration: recipe.craftTime * 1000 });
             saveState();
             startQueueTimer();
@@ -34155,7 +34952,11 @@ window.tutorialManager = (() => {
             }
         }
 
-        return { open, close, craft, setCategory, updateBadge, render, recalculateTechBonuses, updateActiveBonuses, cancelUltimateQueue };
+        return {
+            open, close, craft, setCategory, updateBadge, render,
+            recalculateTechBonuses, updateActiveBonuses, cancelUltimateQueue,
+            hydrateFromGameState, getCraftedRecipes, getCraftingQueue
+        };
     })();
     </script>
 

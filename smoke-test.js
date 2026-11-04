@@ -34,6 +34,10 @@ const stateRoutes = require('./src/routes/state');
 const guildRoutes = require('./src/routes/guild');
 const bossRoutes = require('./src/routes/boss');
 const ultimate = require('./src/routes/ultimate');
+const worldRoutes = require('./src/routes/world');
+const marketRoutes = require('./src/routes/market');
+const chatRoutes = require('./src/routes/chat');
+const economyRoutes = require('./src/routes/economy');
 const { createHub, broadcastGalaxy } = require('./src/ws/hub');
 
 process.env.ULTIMATE_CRAFT_MS = '50'; // short forge for smoke tests
@@ -52,6 +56,10 @@ async function main() {
     app.use('/api', guildRoutes);
     app.use('/api', bossRoutes);
     app.use('/api', ultimate.router);
+    app.use('/api', worldRoutes);
+    app.use('/api', marketRoutes);
+    app.use('/api', chatRoutes);
+    app.use('/api', economyRoutes);
     const server = http.createServer(app);
     createHub(server);
     ultimate.setBroadcastGalaxy(broadcastGalaxy);
@@ -114,19 +122,150 @@ async function main() {
     }).then(r => r.json());
     check('promoted account reports accountType admin via API', meAfterPromote.player?.accountType === 'admin');
 
-    // ── state save/load (+ horizon coins column sync) ──
+    // ── state save/load — progress blob OK; economy wallets locked on PUT ──
     const saveState = { fleets: { home: { 'Wolf Cruiser': 5 } }, resources: { metal: 12345 }, horizonCoins: 777 };
     const putState = await fetch(`${base}/api/state`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
         body: JSON.stringify({ state: saveState }),
-    });
-    check('state save succeeds (200)', putState.status === 200);
+    }).then(r => r.json());
+    check('state save succeeds', putState.success === true);
+    check('PUT locks economy (ignores invented metal)', putState.economyLocked === true && putState.resources?.metal !== 12345);
 
     const getState = await fetch(`${base}/api/state`, {
         headers: { Authorization: `Bearer ${login1.token}` },
     }).then(r => r.json());
-    check('state round-trips correctly', getState.state?.resources?.metal === 12345);
-    check('horizon coins surfaced from state save', getState.horizonCoins === 777 || getState.state?.horizonCoins === 777);
+    check('non-economy progress round-trips', getState.state?.fleets?.home?.['Wolf Cruiser'] === 5);
+    check('forged resources did not stick', (getState.state?.resources?.metal || 0) !== 12345);
+    check('forged HC via PUT did not stick', getState.horizonCoins !== 777);
+
+    // Economy mutations go through /api/economy (admin grant for test seeding)
+    const grantEco = await fetch(`${base}/api/economy/grant`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({
+            reason: 'admin',
+            horizonCoins: 1337,
+            resources: { metal: 50, credits: 0, he3: 0, food: 0 },
+            inventoryAdd: [
+                { id: '1', artifactId: 'fragment', quantity: 3 },
+                { id: '2', artifactId: 'firehawkSchematic', quantity: 1 },
+            ],
+        }),
+    }).then(r => r.json());
+    check('admin economy grant succeeds', grantEco.success === true);
+    check('inventory persists via economy grant', Array.isArray(grantEco.inventory) && grantEco.inventory.length === 2);
+    check('schematic item persists', grantEco.inventory.some(i => i.artifactId === 'firehawkSchematic'));
+    // HC grants are additive onto the column default (500)
+    const aliceHcAfterGrant = grantEco.horizonCoins;
+    check('horizon coins persist via economy grant', aliceHcAfterGrant === 500 + 1337);
+
+    const inventPut = await fetch(`${base}/api/state`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ state: { fleets: getState.state.fleets, resources: { metal: 999999999 }, horizonCoins: 999999, inventory: [] } }),
+    }).then(r => r.json());
+    check('invented metal ignored on PUT', inventPut.resources?.metal === 50);
+    check('invented HC ignored on PUT', inventPut.horizonCoins === aliceHcAfterGrant);
+    check('inventory wipe via PUT ignored', inventPut.inventory?.length === 2);
+
+    const spendEco = await fetch(`${base}/api/economy/spend`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ resources: { metal: 10 } }),
+    }).then(r => r.json());
+    check('economy spend deducts metal', spendEco.success === true && spendEco.resources?.metal === 40);
+
+    // ── world PUT lockdown + action-validated market/chat ──
+    const badWorld = await fetch(`${base}/api/world/not_a_real_key`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ value: { listings: [] } }),
+    });
+    check('world rejects unknown key', badWorld.status === 400 || badWorld.status === 403);
+
+    const spoofMarket = await fetch(`${base}/api/world/fractured_market`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ value: { listings: [{ id: 1, item: 'cheat' }], nextListingId: 2 } }),
+    });
+    check('raw market overwrite denied', spoofMarket.status === 403);
+
+    const spoofChat = await fetch(`${base}/api/world/stellarCommandChat`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ value: { messages: [{ text: 'spoof' }] } }),
+    });
+    check('raw chat overwrite denied', spoofChat.status === 403);
+
+    const putFleets = await fetch(`${base}/api/world/fu_guildFleets_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ value: { list: [{ id: 'm1', owner: 'alice', endTime: Date.now() + 60000 }] } }),
+    });
+    check('world guild fleets key still writable', putFleets.status === 200);
+
+    // Seed market wallets via admin grant / direct DB (PUT cannot invent economy)
+    await fetch(`${base}/api/economy/grant`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({
+            reason: 'admin',
+            resources: { metal: 460, credits: 10000 }, // 40 left from earlier spend + 460 = 500
+            inventoryAdd: [{ id: 'art1', artifactId: 'fragment', quantity: 2 }],
+        }),
+    });
+    // Bob is not admin — seed via DB for the test harness only
+    {
+        const bobRow = await db.query('SELECT state FROM players WHERE username = $1', ['bob']);
+        const st = (bobRow.rows[0]?.state && typeof bobRow.rows[0].state === 'object')
+            ? { ...bobRow.rows[0].state }
+            : {};
+        st.resources = { metal: 0, he3: 0, food: 0, credits: 5000, population: 0, researchPoints: 0 };
+        st.inventory = [];
+        await db.query('UPDATE players SET state = $1, horizon_coins = 200 WHERE username = $2', [st, 'bob']);
+    }
+
+    const listRes = await fetch(`${base}/api/market/list-resource`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ resourceType: 'metal', quantity: 100, pricePerUnit: 5 }),
+    }).then(r => r.json());
+    check('market list-resource succeeds', listRes.success === true && listRes.listing?.id);
+    check('listing escrows seller metal', listRes.state?.resources?.metal === 400);
+
+    const marketView = await fetch(`${base}/api/market`, {
+        headers: { Authorization: `Bearer ${login2Token(reg2)}` },
+    }).then(r => r.json());
+    check('buyer sees active listing', marketView.listings?.some(l => l.id === listRes.listing.id));
+
+    const buyRes = await fetch(`${base}/api/market/buy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login2Token(reg2)}` },
+        body: JSON.stringify({ listingId: listRes.listing.id }),
+    }).then(r => r.json());
+    check('market buy succeeds', buyRes.success === true);
+    check('buyer gains metal', buyRes.state?.resources?.metal === 100);
+    check('buyer pays credits', buyRes.state?.resources?.credits === 4500);
+
+    const aliceAfterBuy = await fetch(base + '/api/state', {
+        headers: { Authorization: 'Bearer ' + login1.token },
+    }).then(r => r.json());
+    check('seller receives credits', aliceAfterBuy.state?.resources?.credits === 10500);
+
+    const chatPost = await fetch(`${base}/api/chat`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ text: 'hello galaxy' }),
+    }).then(r => r.json());
+    check('chat append succeeds', chatPost.success === true && chatPost.message?.text === 'hello galaxy');
+    const chatGet = await fetch(`${base}/api/chat`, {
+        headers: { Authorization: `Bearer ${login2Token(reg2)}` },
+    }).then(r => r.json());
+    check('chat visible to other players', chatGet.messages?.some(m => m.text === 'hello galaxy'));
+
+    const artList = await fetch(`${base}/api/market/list-artifact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({
+            artifactId: 'fragment', artifactName: 'Fragment', artifactIcon: '🧩',
+            price: 50, inventoryItemId: 'art1', currency: 'credits',
+        }),
+    }).then(r => r.json());
+    check('artifact listing escrows inventory', artList.success === true && !(artList.state?.inventory || []).some(i => i.id === 'art1'));
+
+    const artBuy = await fetch(`${base}/api/market/buy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login2Token(reg2)}` },
+        body: JSON.stringify({ listingId: artList.listing.id }),
+    }).then(r => r.json());
+    check('artifact buy transfers item', artBuy.success === true && artBuy.state?.inventory?.some(i => i.artifactId === 'fragment'));
 
     // ── guilds ──
     const guild = await fetch(`${base}/api/guilds`, {
@@ -295,12 +434,15 @@ async function main() {
     }).then(async (r) => ({ status: r.status, body: await r.json() }));
     check('complete arms ultimate weapon after timer', complete.status === 200 && complete.body.craft?.status === 'armed');
 
-    // Bob keeps HC via state
-    await fetch(`${base}/api/state`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login2Token(reg2)}` },
-        body: JSON.stringify({ state: { horizonCoins: 4242, resources: { metal: 9 } } }),
-    });
+    // Bob keeps HC via column (PUT can no longer invent HC)
+    {
+        const bobRow = await db.query('SELECT state FROM players WHERE username = $1', ['bob']);
+        const st = (bobRow.rows[0]?.state && typeof bobRow.rows[0].state === 'object')
+            ? { ...bobRow.rows[0].state }
+            : {};
+        st.resources = { ...(st.resources || {}), metal: 9 };
+        await db.query('UPDATE players SET state = $1, horizon_coins = 4242 WHERE username = $2', [st, 'bob']);
+    }
 
     let sawWipe = false;
     wsThreat.on('message', (raw) => {
@@ -324,7 +466,7 @@ async function main() {
     const aliceAfter = await fetch(`${base}/api/state`, {
         headers: { Authorization: `Bearer ${login1.token}` },
     }).then(r => r.json());
-    check('alice HC still preserved after wipe', aliceAfter.horizonCoins === 777 || aliceAfter.state?.horizonCoins === 777);
+    check('alice HC still preserved after wipe', aliceAfter.horizonCoins === aliceHcAfterGrant || aliceAfter.state?.horizonCoins === aliceHcAfterGrant);
 
     wsThreat.close();
     server.close();
