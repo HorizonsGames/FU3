@@ -434,6 +434,185 @@ async function main() {
     }).then(async (r) => ({ status: r.status, body: await r.json() }));
     check('complete arms ultimate weapon after timer', complete.status === 200 && complete.body.craft?.status === 'armed');
 
+    // ── Offline research catch-up (browser closed / logged out) ──
+    {
+        const past = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago
+        // Seed via DB so the stored watermark is genuinely old (simulates last autosave before logout).
+        const aliceRow = await db.query('SELECT state, horizon_coins FROM players WHERE username = $1', ['alice']);
+        const prev = (aliceRow.rows[0]?.state && typeof aliceRow.rows[0].state === 'object')
+            ? { ...aliceRow.rows[0].state }
+            : {};
+        const researchSeed = {
+            ...prev,
+            researchCaughtUpAt: past,
+            ships: { 'Test Frigate': { name: 'Test Frigate', count: 0, researched: false } },
+            researchQueue: [{
+                name: 'Test Frigate',
+                icon: '🚀',
+                timeRemaining: 120,
+                totalTime: 600,
+            }],
+            technologies: {
+                offline_tech: { researched: false, researching: true, progress: 0 },
+            },
+            techResearchQueue: [{
+                id: 'offline_tech',
+                progress: 0,
+                time: 60,
+                effects: [{ type: 'resource', resource: 'metal', value: 0.05 }],
+                name: 'Offline Tech',
+            }],
+            techBonuses: {},
+            buildQueue: [{
+                shipName: 'Test Frigate',
+                quantity: 2,
+                timeRemaining: 30,
+                totalTime: 30,
+            }],
+            unlockedRaceTechs: {},
+        };
+        await db.query('UPDATE players SET state = $1 WHERE username = $2', [researchSeed, 'alice']);
+
+        const afterResearch = await fetch(`${base}/api/state`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        const rs = afterResearch.state || {};
+        check('offline ship research completes on GET', rs.ships?.['Test Frigate']?.researched === true);
+        check('offline ship research clears queue', !rs.researchQueue?.some((r) => r.name === 'Test Frigate'));
+        check('offline tech research completes on GET', rs.technologies?.offline_tech?.researched === true);
+        check('offline tech research clears queue', !(rs.techResearchQueue || []).some((r) => r.id === 'offline_tech'));
+        check('offline tech bonuses applied', (rs.techBonuses?.metal || 0) >= 0.05);
+        check('offline build queue completes on GET', (rs.ships?.['Test Frigate']?.count || 0) >= 3); // +1 research +2 build
+        check('researchCaughtUpAt advanced', !!rs.researchCaughtUpAt && Date.parse(rs.researchCaughtUpAt) > Date.parse(past));
+
+        // Rewinding the watermark via PUT must not invent extra progress
+        const stamp = rs.researchCaughtUpAt;
+        await fetch(`${base}/api/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+            body: JSON.stringify({
+                state: {
+                    ...rs,
+                    researchCaughtUpAt: '2000-01-01T00:00:00.000Z',
+                    researchQueue: [{ name: 'Cheat Ship', timeRemaining: 5, totalTime: 5 }],
+                    ships: { ...(rs.ships || {}), 'Cheat Ship': { name: 'Cheat Ship', count: 0, researched: false } },
+                },
+            }),
+        });
+        const noRewind = await fetch(`${base}/api/state`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check(
+            'client cannot rewind researchCaughtUpAt',
+            Date.parse(noRewind.state?.researchCaughtUpAt || 0) >= Date.parse(stamp) - 2000
+        );
+        // Cheat ship must not complete from a forged ancient watermark (only real elapsed since stamp)
+        check(
+            'forged ancient watermark does not finish new research',
+            noRewind.state?.ships?.['Cheat Ship']?.researched !== true
+        );
+    }
+
+    // ── Commanders persist + empty PUT cannot wipe ──
+    {
+        const cmdState = {
+            commanders: [
+                { id: 'cmd_alpha', name: 'Alpha', rarity: 'COMMON', stars: 1, acquiredDate: 1000 },
+                { id: 'cmd_beta', name: 'Beta', rarity: 'EPIC', stars: 2, acquiredDate: 2000 },
+            ],
+            commanderAssignments: { planets: { p1: 'cmd_alpha_1' }, fleets: {} },
+            commandersRev: 3,
+            researchCaughtUpAt: new Date().toISOString(),
+        };
+        await fetch(`${base}/api/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+            body: JSON.stringify({ state: cmdState }),
+        });
+        const cmdSaved = await fetch(`${base}/api/state`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check('commanders persist across GET', (cmdSaved.state?.commanders || []).length === 2);
+        check('commander assignments persist', !!cmdSaved.state?.commanderAssignments?.planets?.p1);
+        check('commandersRev persisted', cmdSaved.state?.commandersRev === 3);
+
+        // Stale empty autosave with older/equal rev must not wipe collection
+        await fetch(`${base}/api/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+            body: JSON.stringify({
+                state: {
+                    ...cmdSaved.state,
+                    commanders: [],
+                    commanderAssignments: { planets: {}, fleets: {} },
+                    commandersRev: 1,
+                },
+            }),
+        });
+        const cmdProtected = await fetch(`${base}/api/state`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check('stale empty PUT cannot wipe commanders', (cmdProtected.state?.commanders || []).length === 2);
+        check('commandersRev stays authoritative', cmdProtected.state?.commandersRev === 3);
+
+        // Legitimate shrink (stack) with higher rev is allowed
+        await fetch(`${base}/api/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+            body: JSON.stringify({
+                state: {
+                    ...cmdProtected.state,
+                    commanders: [{ id: 'cmd_beta', name: 'Beta', rarity: 'EPIC', stars: 3, acquiredDate: 2000 }],
+                    commandersRev: 4,
+                },
+            }),
+        });
+        const cmdStacked = await fetch(`${base}/api/state`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check('higher commandersRev can shrink collection', (cmdStacked.state?.commanders || []).length === 1);
+        check('stacked commander stars kept', cmdStacked.state?.commanders?.[0]?.stars === 3);
+    }
+
+    // ── Offline economy + crafting catch-up on GET ──
+    {
+        const pastEco = Date.now() - 2 * 60 * 60 * 1000; // 2h ago
+        const aliceRow = await db.query('SELECT state FROM players WHERE username = $1', ['alice']);
+        const prev = (aliceRow.rows[0]?.state && typeof aliceRow.rows[0].state === 'object')
+            ? { ...aliceRow.rows[0].state }
+            : {};
+        const craftStart = Date.now() - 10 * 60 * 1000;
+        prev.economyCollectedAt = pastEco;
+        prev.resources = { ...(prev.resources || {}), metal: 100, credits: 100, he3: 100, food: 1000, population: 500, researchPoints: 0 };
+        prev.planets = [{
+            id: 1, name: 'Home', isHome: true, owner: 'alice',
+            resources: { metal: 6000, he3: 3000, food: 3000 },
+            population: 500,
+            buildings: { 'Mining Outpost': 1, Farm: 1 },
+        }];
+        prev.playerData = { username: 'alice' };
+        prev.selectedRace = { name: 'Terran Empire' };
+        prev.craftingQueue = [{
+            recipeId: 'reinforcedHull',
+            name: 'Reinforced Hull Plating',
+            startTime: craftStart,
+            duration: 60 * 1000,
+            endsAt: craftStart + 60 * 1000,
+            repeatable: true,
+            result: { type: 'techBonus', stat: 'hull', value: 15, display: '+15% Hull', duration: 48 * 60 * 60 * 1000 },
+        }];
+        prev.temporaryBonuses = [{ stat: 'damage', value: 5, expiresAt: Date.now() - 1000, craftName: 'Old' }];
+        await db.query('UPDATE players SET state = $1 WHERE username = $2', [prev, 'alice']);
+
+        const afterOffline = await fetch(`${base}/api/state`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check('offline economy collect adds metal', (afterOffline.resources?.metal || 0) > 100);
+        check('offline crafting completes', !(afterOffline.state?.craftingQueue || []).some((c) => c.recipeId === 'reinforcedHull'));
+        check('offline craft applies temp bonus', (afterOffline.state?.temporaryBonuses || []).some((b) => b.stat === 'hull'));
+        check('expired temp bonuses pruned', !(afterOffline.state?.temporaryBonuses || []).some((b) => b.craftName === 'Old'));
+    }
+
     // Bob keeps HC via column (PUT can no longer invent HC)
     {
         const bobRow = await db.query('SELECT state FROM players WHERE username = $1', ['bob']);
