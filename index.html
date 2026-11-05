@@ -9075,45 +9075,42 @@
                 // Randomly select a commander
                 const randomCommander = availableCommanders[Math.floor(Math.random() * availableCommanders.length)];
                 
-                // Deduct coins
-                const _finishGachaSpend = () => {
-                    console.log('💎 Coins after purchase:', this.game.horizonCoins);
+                const grantCommander = () => {
+                    // Show reveal modal with animation
+                    this.revealCommander(randomCommander);
+
+                    const newCommander = {
+                        ...randomCommander,
+                        stars: 1,
+                        acquiredDate: Date.now()
+                    };
+
+                    this.game.commanders.push(newCommander);
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                    console.log('📦 Commander added to collection:', newCommander.name);
                     if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+
+                    if (window.chatManager) {
+                        chatManager.addMessage('SYSTEM', `✨ GACHA PULL! You obtained ${randomCommander.name} (${rarity})!`, 'system');
+                    }
+
+                    this._lastFingerprint = null;
+                    this.game.updateUI();
                 };
+
                 if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
                     serverEconomySpend({ horizonCoins: rarityInfo.horizonCoinCost }).then((r) => {
                         if (!r.ok) {
                             alert(r.error || 'Insufficient Horizon Coins on server');
                             return;
                         }
-                        _finishGachaSpend();
+                        grantCommander();
                     });
-                    // Commander roll continues below using local state; HC already applied from server
-                } else {
-                    this.game.horizonCoins -= rarityInfo.horizonCoinCost;
-                    _finishGachaSpend();
+                    return;
                 }
-                
-                // Show reveal modal with animation
-                this.revealCommander(randomCommander);
-                
-                // Add commander to collection
-                const newCommander = {
-                    ...randomCommander,
-                    stars: 1,
-                    acquiredDate: Date.now()
-                };
-                
-                this.game.commanders.push(newCommander);
-                console.log('📦 Commander added to collection:', newCommander.name);
-                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
-                
-                if (window.chatManager) {
-                    chatManager.addMessage('SYSTEM', `✨ GACHA PULL! You obtained ${randomCommander.name} (${rarity})!`, 'system');
-                }
-                
-                this._lastFingerprint = null; // invalidate cache after purchase
-                this.game.updateUI();
+
+                this.game.horizonCoins -= rarityInfo.horizonCoinCost;
+                grantCommander();
             }
             
             revealCommander(commander) {
@@ -9301,6 +9298,9 @@
                     this.game.showNotification('\u{1F4CC} Commander assigned to fleet!');
                 }
 
+                if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+
                 this.closeAssignmentModal();
                 this.refreshView();
 
@@ -9315,25 +9315,31 @@
             }
             
             unassignCommander(commanderId) {
+                let changed = false;
                 // Find where this commander is assigned
                 for (let planetId in this.game.commanderAssignments.planets) {
                     if (this.game.commanderAssignments.planets[planetId] === commanderId) {
                         delete this.game.commanderAssignments.planets[planetId];
                         this.game.showNotification('✅ Commander unassigned from planet');
-                        this.refreshView();
-                        this.game.renderFleetList();
-                        return;
+                        changed = true;
+                        break;
                     }
                 }
-                
-                for (let fleetId in this.game.commanderAssignments.fleets) {
-                    if (this.game.commanderAssignments.fleets[fleetId] === commanderId) {
-                        delete this.game.commanderAssignments.fleets[fleetId];
-                        this.game.showNotification('✅ Commander unassigned from fleet');
-                        this.refreshView();
-                        this.game.renderFleetList();
-                        return;
+                if (!changed) {
+                    for (let fleetId in this.game.commanderAssignments.fleets) {
+                        if (this.game.commanderAssignments.fleets[fleetId] === commanderId) {
+                            delete this.game.commanderAssignments.fleets[fleetId];
+                            this.game.showNotification('✅ Commander unassigned from fleet');
+                            changed = true;
+                            break;
+                        }
                     }
+                }
+                if (changed) {
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                    if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+                    this.refreshView();
+                    this.game.renderFleetList();
                 }
             }
             
@@ -9421,6 +9427,7 @@
                 this.closeFleetCommanderModal();
                 this.refreshView();
                 this.game.renderFleetList();
+                if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                 this.game.saveGameState();
             }
             
@@ -9453,6 +9460,7 @@
                 };
                 
                 this.game.commanders.push(newCommander);
+                if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                 if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
                 
                 if (window.chatManager) {
@@ -9559,6 +9567,7 @@
                     };
                     
                     this.game.commanders.push(upgradedCommander);
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                     if (this.game && typeof this.game.saveGameState === 'function') this.game.saveGameState();
                     
                     if (window.chatManager) {
@@ -9677,6 +9686,7 @@
                     };
                     
                     this.game.commanders.push(newCommander);
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                     if (this.game && typeof this.game.saveGameState === 'function') this.game.saveGameState();
                     
                     if (window.chatManager) {
@@ -13667,6 +13677,20 @@ const SHIP_IMAGE_DATA = {
                             if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
                                 applyServerEconomyState(res, { skipSave: true });
                             }
+                            if (res && window.game) {
+                                if (res.commandersRev != null) {
+                                    window.game.commandersRev = Math.max(
+                                        window.game.commandersRev || 0,
+                                        Math.floor(Number(res.commandersRev) || 0)
+                                    );
+                                }
+                                if (res.state && Array.isArray(res.state.commanders)) {
+                                    window.game.commanders = res.state.commanders;
+                                    if (res.state.commanderAssignments) {
+                                        window.game.commanderAssignments = res.state.commanderAssignments;
+                                    }
+                                }
+                            }
                         });
                     };
                     if (!light && typeof reconcileEconomyWithServer === 'function') {
@@ -14701,7 +14725,10 @@ const SHIP_IMAGE_DATA = {
                     planets: {}, // planetId: commanderId
                     fleets: {}   // fleetId: commanderId
                 };
+                this.commandersRev = 0; // monotonic — server rejects stale empties
                 this.horizonCoins = 500; // Starting Horizon Coins
+                this.pendingMissions = [];
+                this.deferredAttacks = [];
                 
                 // Interval IDs for clearing
                 this.resourceInterval = null;
@@ -14887,6 +14914,13 @@ const SHIP_IMAGE_DATA = {
                         this.researchQueue = playerData.gameState.researchQueue;
                         console.log(`🔬 Loaded ${this.researchQueue.length} research items`);
                     }
+                    if (playerData.gameState.researchCaughtUpAt) {
+                        const caught = Date.parse(playerData.gameState.researchCaughtUpAt);
+                        if (Number.isFinite(caught)) {
+                            this._researchCaughtUpAt = caught;
+                            this._buildCaughtUpAt = caught;
+                        }
+                    }
 
                     if (playerData.gameState.techBonuses) {
                         this.techBonuses = { ...this.techBonuses, ...playerData.gameState.techBonuses };
@@ -14950,6 +14984,13 @@ const SHIP_IMAGE_DATA = {
                         console.log(`Loaded ${this.commanders.length} commanders`);
                     } else if (!Array.isArray(this.commanders)) {
                         this.commanders = [];
+                    }
+                    this.commandersRev = Math.max(0, Math.floor(Number(playerData.gameState.commandersRev) || 0));
+                    if (Array.isArray(playerData.gameState.pendingMissions)) {
+                        this.pendingMissions = playerData.gameState.pendingMissions;
+                    }
+                    if (Array.isArray(playerData.gameState.deferredAttacks)) {
+                        this.deferredAttacks = playerData.gameState.deferredAttacks;
                     }
 
                     if (playerData.gameState.commanderAssignments) {
@@ -15082,6 +15123,51 @@ const SHIP_IMAGE_DATA = {
                 }
             }
             
+            bumpCommandersRev() {
+                this.commandersRev = Math.max(0, Math.floor(Number(this.commandersRev) || 0)) + 1;
+            }
+
+            /** Finish sieges / deferred attacks / temp bonuses after server offline catch-up. */
+            _resumeOfflineProgress() {
+                const now = Date.now();
+                // Re-arm or resolve active sieges (server may have already resolved some)
+                (this.sieges || []).forEach((siege) => {
+                    if (!siege || !siege.active) return;
+                    const endsAt = Number(siege.endsAt) || 0;
+                    const target = (this.planets || []).find(p => p && p.id === siege.planetId);
+                    if (!target) return;
+                    if (endsAt <= now) {
+                        this._resolveSiege(siege, target, siege.missionFleetIdx, siege.missionShipNames, siege.force || {});
+                    } else if (!siege._timerId) {
+                        siege._timerId = setTimeout(() => {
+                            this._resolveSiege(siege, target, siege.missionFleetIdx, siege.missionShipNames, siege.force || {});
+                        }, Math.max(250, endsAt - now));
+                    }
+                });
+
+                // Attacks that arrived while offline (server freed ships + deferred combat)
+                const deferred = Array.isArray(this.deferredAttacks) ? this.deferredAttacks.slice() : [];
+                this.deferredAttacks = [];
+                deferred.forEach((mission) => {
+                    const target = (this.planets || []).find(p => p && p.id === mission.planetId);
+                    if (!target) return;
+                    try {
+                        this.resolveAttack(
+                            target,
+                            mission.attackForce || {},
+                            mission.totalPower || 0,
+                            mission.missionFleetIndex,
+                            mission.missionShipNames
+                        );
+                    } catch (e) {}
+                });
+
+                // Expire temp craft bonuses client-side (server already pruned)
+                if (Array.isArray(this.temporaryBonuses)) {
+                    this.temporaryBonuses = this.temporaryBonuses.filter(b => b && (Number(b.expiresAt) || 0) > now);
+                }
+            }
+
             saveGameState() {
                 // Prefer AuthManager (writes local DB + MP server). Fall back to MP-only.
                 if (window.auth && typeof window.auth.saveGameState === 'function') {
@@ -15092,6 +15178,12 @@ const SHIP_IMAGE_DATA = {
                     window.MP.saveState(this.getGameState()).then((res) => {
                         if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
                             applyServerEconomyState(res, { skipSave: true });
+                        }
+                        if (res && res.commandersRev != null) {
+                            this.commandersRev = Math.max(this.commandersRev || 0, Math.floor(Number(res.commandersRev) || 0));
+                        }
+                        if (res && res.state && Array.isArray(res.state.commanders)) {
+                            this.commanders = res.state.commanders;
                         }
                     }).catch((e) => console.warn('[MP] save failed:', e.message));
                 }
@@ -15107,6 +15199,9 @@ const SHIP_IMAGE_DATA = {
                     fleets: this.fleets,
                     researchQueue: this.researchQueue,
                     techResearchQueue: this.techResearchQueue || [],
+                    researchCaughtUpAt: this._researchCaughtUpAt
+                        ? new Date(this._researchCaughtUpAt).toISOString()
+                        : new Date().toISOString(),
                     techBonuses: this.techBonuses || {},
                     technologies: Object.fromEntries(
                         Object.entries(this.technologies || {}).map(([id, tech]) => [id, {
@@ -15120,6 +15215,9 @@ const SHIP_IMAGE_DATA = {
                     inventory: this.inventory || [],
                     commanders: Array.isArray(this.commanders) ? this.commanders : [],
                     commanderAssignments: this.commanderAssignments || { planets: {}, fleets: {} },
+                    commandersRev: Math.max(0, Math.floor(Number(this.commandersRev) || 0)),
+                    pendingMissions: Array.isArray(this.pendingMissions) ? this.pendingMissions : [],
+                    deferredAttacks: Array.isArray(this.deferredAttacks) ? this.deferredAttacks : [],
                     artifactBonuses: this.artifactBonuses || { food: 0, populationGrowth: 0 },
                     capturedShips: this.capturedShips || {},
                     reverseEngineered: this.reverseEngineered || {},
@@ -15220,7 +15318,15 @@ const SHIP_IMAGE_DATA = {
                     // Schedule first alien encounter (30–90 minutes after login for first encounter)
                     setTimeout(() => this._scheduleAlienEncounter(), 30 * 60 * 1000 + Math.random() * 60 * 60 * 1000);
                     
-                    // Resources every 1s; research/build every 2s to cut DOM work
+                    // Catch up research/builds immediately (covers local saves + any
+                    // remaining wall-clock gap after server GET catch-up).
+                    try { this.updateResearch(); } catch (e) {}
+                    try { this.updateBuildQueue(); } catch (e) {}
+                    try { this._resumeOfflineProgress(); } catch (e) {}
+
+                    // Resources every 1s; research/build every 2s to cut DOM work.
+                    // While multiplayer: production is also claimed from the server so
+                    // offline time is never lost if the tab dies mid-session.
                     this._slowTick = 0;
                     this.resourceInterval = setInterval(() => {
                         try { this.generateResources(); } catch (e) {}
@@ -15228,6 +15334,9 @@ const SHIP_IMAGE_DATA = {
                         if (this._slowTick % 2 === 0) {
                             try { this.updateResearch(); } catch (e) {}
                             try { this.updateBuildQueue(); } catch (e) {}
+                        }
+                        if (this._slowTick % 60 === 0 && window.MP && window.MP.token && typeof serverEconomyCollect === 'function') {
+                            serverEconomyCollect().catch(() => {});
                         }
                     }, 1000);
                     this.researchInterval = null;
@@ -17509,7 +17618,22 @@ const SHIP_IMAGE_DATA = {
                     shipCount,
                     alwaysVisible: true
                 });
+                const attackMissionId = `atk_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                const attackArrivesAt = Date.now() + travelTime * 1000;
+                if (!this.pendingMissions) this.pendingMissions = [];
+                this.pendingMissions.push({
+                    id: attackMissionId,
+                    type: 'attack',
+                    arrivesAt: attackArrivesAt,
+                    planetId: target.id,
+                    attackForce,
+                    totalPower,
+                    missionFleetIndex,
+                    missionShipNames: missionShips,
+                });
+                this.saveGameState();
                 setTimeout(() => {
+                    this.pendingMissions = (this.pendingMissions || []).filter(m => m.id !== attackMissionId);
                     this.removeMapFleetTravel(mapFleetId);
                     this.resolveAttack(target, attackForce, totalPower, missionFleetIndex, missionShips);
                 }, travelTime * 1000);
@@ -20469,8 +20593,24 @@ const SHIP_IMAGE_DATA = {
                     color: '#ff6622',
                     alwaysVisible: true
                 });
+                const siegeTravelId = `siege_travel_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                if (!this.pendingMissions) this.pendingMissions = [];
+                this.pendingMissions.push({
+                    id: siegeTravelId,
+                    type: 'siege_travel',
+                    arrivesAt: Date.now() + travelTime * 1000,
+                    planetId: targetPlanetId,
+                    planetName: target.name,
+                    attackPower: totalPower,
+                    force,
+                    missionFleetIdx,
+                    missionShipNames,
+                    siegeDurationMs: SIEGE_DURATION_MS,
+                });
+                this.saveGameState();
 
                 setTimeout(() => {
+                    this.pendingMissions = (this.pendingMissions || []).filter(m => m.id !== siegeTravelId);
                     this.removeMapFleetTravel(siegeMapId);
                     // Fleet arrives — check if target still enemy-owned
                     if (target.owner === this.selectedRace.name || !target.owner) {
@@ -24437,14 +24577,20 @@ const SHIP_IMAGE_DATA = {
                     this.resources.credits -= ship.creditCost;
                     this.resources.metal -= ship.metalCost;
                     
+                    const shipResearchSecs = ship.time * 60;
+                    const shipRate = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
+                    const shipNow = Date.now();
                     this.researchQueue.push({
                         name: ship.name,
                         icon: ship.icon,
-                        timeRemaining: ship.time * 60, // Convert to seconds
-                        totalTime: ship.time * 60,
+                        timeRemaining: shipResearchSecs,
+                        totalTime: shipResearchSecs,
                         damage: ship.damage,
-                        hitPoints: ship.hitPoints
+                        hitPoints: ship.hitPoints,
+                        startedAt: shipNow,
+                        endsAt: shipNow + (shipResearchSecs / shipRate) * 1000
                     });
+                    this._researchCaughtUpAt = shipNow;
                     
                     // [removed debug log]
                     
@@ -24459,11 +24605,25 @@ const SHIP_IMAGE_DATA = {
             
             updateResearch() {
               try {
+                // Wall-clock catch-up: continues correctly after tab sleep, browser close, or login.
+                const now = Date.now();
+                const last = this._researchCaughtUpAt || now;
+                let elapsedSec = Math.max(0, (now - last) / 1000);
+                this._researchCaughtUpAt = now;
+                if (elapsedSec > 30 * 24 * 3600) elapsedSec = 30 * 24 * 3600;
+
                 // Process ship research queue (do not early-return — tech queue must still tick)
-                if (this.researchQueue && this.researchQueue.length > 0) {
-                    const shipResearchTick = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
+                if (elapsedSec > 0 && this.researchQueue && this.researchQueue.length > 0) {
+                    const shipRate = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
                     this.researchQueue = this.researchQueue.map(research => {
-                        research.timeRemaining -= shipResearchTick;
+                        if (research.endsAt) {
+                            research.timeRemaining = (research.endsAt - now) / 1000;
+                        } else {
+                            research.timeRemaining = (Number(research.timeRemaining) || 0) - elapsedSec * shipRate;
+                            if (research.totalTime) {
+                                research.endsAt = now + (Math.max(0, research.timeRemaining) / shipRate) * 1000;
+                            }
+                        }
                         
                         if (research.timeRemaining <= 0) {
                             // Mark ship as researched
@@ -24482,22 +24642,32 @@ const SHIP_IMAGE_DATA = {
                     }).filter(r => r !== null);
                 }
                 
-                // Process technology research queue
-                if (this.techResearchQueue && this.techResearchQueue.length > 0) {
-                    const currentTech = this.techResearchQueue[0];
-                    const tech = this.technologies[currentTech.id];
-                    if (tech) {
+                // Process technology research queue (sequential; burn full offline budget)
+                if (elapsedSec > 0 && this.techResearchQueue && this.techResearchQueue.length > 0) {
+                    const techRate = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
+                    let budget = elapsedSec * techRate;
+                    while (this.techResearchQueue.length > 0 && budget > 0) {
+                        const currentTech = this.techResearchQueue[0];
+                        const tech = this.technologies[currentTech.id];
+                        if (!tech) {
+                            this.techResearchQueue.shift();
+                            continue;
+                        }
                         tech.researching = true;
-                        const techTick = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
-                        currentTech.progress = (currentTech.progress || 0) + techTick;
-                        tech.progress = currentTech.progress;
-                        
-                        if (currentTech.progress >= currentTech.time) {
+                        const need = Math.max(0, (Number(currentTech.time) || 0) - (Number(currentTech.progress) || 0));
+                        if (budget >= need) {
+                            budget -= need;
+                            currentTech.progress = Number(currentTech.time) || 0;
+                            tech.progress = currentTech.progress;
                             this.completeTechResearch(currentTech.id);
-                        } else if (document.getElementById('techTreeModal')?.style.display === 'block') {
-                            // Keep progress bar live while the modal is open
-                            this.renderTechTree();
-                            this.renderTechBonuses();
+                        } else {
+                            currentTech.progress = (Number(currentTech.progress) || 0) + budget;
+                            tech.progress = currentTech.progress;
+                            budget = 0;
+                            if (document.getElementById('techTreeModal')?.style.display === 'block') {
+                                this.renderTechTree();
+                                this.renderTechBonuses();
+                            }
                         }
                     }
                 }
@@ -24974,12 +25144,15 @@ const SHIP_IMAGE_DATA = {
                     let buildTime = Math.ceil((ship.creditCost / 10) * quantity * timeMult);
                     if (this.hasRaceTech('jury_rigging')) buildTime = Math.floor(buildTime * 0.6);
                     
+                    const buildNow = Date.now();
                     this.buildQueue.push({
                         shipName: ship.name,
                         icon: ship.icon,
                         quantity: quantity,
                         timeRemaining: buildTime,
-                        totalTime: buildTime
+                        totalTime: buildTime,
+                        startedAt: buildNow,
+                        endsAt: buildNow + buildTime * 1000
                     });
                     
                     this.updateResources();
@@ -25033,6 +25206,7 @@ const SHIP_IMAGE_DATA = {
                     let buildTime = Math.floor(ship.time * quantity * timeMult);
                     if (this.hasRaceTech('jury_rigging')) buildTime = Math.floor(buildTime * 0.6);
                     
+                    const buildNow = Date.now();
                     this.buildQueue.push({
                         shipName: ship.name,
                         icon: ship.icon,
@@ -25040,7 +25214,9 @@ const SHIP_IMAGE_DATA = {
                         timeRemaining: buildTime,
                         totalTime: buildTime,
                         isSpecial: true,
-                        specialShipData: ship
+                        specialShipData: ship,
+                        startedAt: buildNow,
+                        endsAt: buildNow + buildTime * 1000
                     });
                     
                     this.updateResources();
@@ -25265,10 +25441,24 @@ const SHIP_IMAGE_DATA = {
 
             updateBuildQueue() {
               try {
-                if (this.buildQueue.length === 0) return;
+                if (!this.buildQueue || this.buildQueue.length === 0) return;
+
+                const now = Date.now();
+                // Own watermark (not research's) so the shared 2s tick does not zero elapsed.
+                const last = (this._buildCaughtUpAt != null) ? this._buildCaughtUpAt : now;
+                let elapsedSec = Math.max(0, (now - last) / 1000);
+                if (elapsedSec > 30 * 24 * 3600) elapsedSec = 30 * 24 * 3600;
+                this._buildCaughtUpAt = now;
                 
                 this.buildQueue = this.buildQueue.map(build => {
-                    build.timeRemaining -= 1;
+                    if (build.endsAt) {
+                        build.timeRemaining = (build.endsAt - now) / 1000;
+                    } else {
+                        build.timeRemaining = (Number(build.timeRemaining) || 0) - elapsedSec;
+                        if (build.totalTime) {
+                            build.endsAt = now + Math.max(0, build.timeRemaining) * 1000;
+                        }
+                    }
                     
                     if (build.timeRemaining <= 0) {
                         // Build complete
@@ -27510,11 +27700,19 @@ const SHIP_IMAGE_DATA = {
                 tech.researching = true;
                 tech.progress = 0;
                 if (!this.techResearchQueue) this.techResearchQueue = [];
+                const techRate = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
+                const techNow = Date.now();
+                const techSecs = Number(tech.time) || 0;
                 this.techResearchQueue.push({
                     id: techId,
                     progress: 0,
-                    time: tech.time
+                    time: tech.time,
+                    name: tech.name,
+                    effects: Array.isArray(tech.effects) ? tech.effects.map(e => ({ ...e })) : [],
+                    startedAt: techNow,
+                    endsAt: techNow + (techSecs / techRate) * 1000
                 });
+                this._researchCaughtUpAt = techNow;
                 
                 this._researchDomNeedsEmpty = true;
                 this.showNotification(`🔬 Research Started: ${tech.name}`);
@@ -34682,9 +34880,19 @@ window.tutorialManager = (() => {
                 return;
             }
 
-            // Consume materials immediately, begin timer
+            // Consume materials immediately, begin timer (snapshot result so server can finish offline)
             await consumeIngredients(recipe);
-            craftingQueue.push({ recipeId, startTime: Date.now(), duration: recipe.craftTime * 1000 });
+            const craftStart = Date.now();
+            const craftDuration = (Number(recipe.craftTime) || 0) * 1000;
+            craftingQueue.push({
+                recipeId,
+                name: recipe.name,
+                startTime: craftStart,
+                duration: craftDuration,
+                endsAt: craftStart + craftDuration,
+                repeatable: !!recipe.repeatable,
+                result: recipe.result ? JSON.parse(JSON.stringify(recipe.result)) : null,
+            });
             saveState();
             startQueueTimer();
             window.game.showNotification(`⚗️ Crafting ${recipe.name}... (${recipe.craftTime}s)`);
