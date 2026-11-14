@@ -24,11 +24,7 @@ async function savePlayer(client, playerId, state, horizonCoins) {
 }
 
 function isAdmin(player) {
-    if (!player) return false;
-    if (String(player.account_type || '').toLowerCase() === 'admin') return true;
-    // Client admin panel is gated to username "mister" — keep server grants in sync
-    // even if account_type was never promoted via seed-admin.js.
-    return String(player.username || '').toLowerCase() === 'mister';
+    return auth.isAdminPlayer(player);
 }
 
 // POST /api/economy/collect — apply time-based production from server-stored planets

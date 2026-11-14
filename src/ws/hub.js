@@ -111,4 +111,22 @@ function send(ws, message) {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
 }
 
-module.exports = { createHub, rooms, broadcastGalaxy };
+/** Unique authenticated players currently connected to /ws. */
+function getOnlinePlayers() {
+    const byId = new Map();
+    if (!wssRef) return [];
+    wssRef.clients.forEach((ws) => {
+        if (ws.readyState !== ws.OPEN || !ws.playerId) return;
+        byId.set(String(ws.playerId), {
+            id: ws.playerId,
+            username: ws.username || null,
+        });
+    });
+    return [...byId.values()];
+}
+
+function getOnlinePlayerIdSet() {
+    return new Set(getOnlinePlayers().map((p) => String(p.id)));
+}
+
+module.exports = { createHub, rooms, broadcastGalaxy, getOnlinePlayers, getOnlinePlayerIdSet };
