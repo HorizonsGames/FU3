@@ -177,6 +177,31 @@ async function main() {
     }).then(r => r.json());
     check('economy spend deducts metal', spendEco.success === true && spendEco.resources?.metal === 40);
 
+    // Search-batch style grant: many of one mat must stack; virus pop spend must stick
+    const searchGold = await fetch(`${base}/api/economy/grant`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({
+            reason: 'search',
+            inventoryAdd: [{ artifactId: 'gold', quantity: 11, source: 'search', stackable: true }],
+        }),
+    }).then(r => r.json());
+    const goldRow = (searchGold.inventory || []).find(i => i.artifactId === 'gold');
+    check('search grant stacks gold ×11', !!goldRow && goldRow.quantity >= 11);
+
+    {
+        const aliceRow = await db.query('SELECT state FROM players WHERE username = $1', ['alice']);
+        const st = (aliceRow.rows[0]?.state && typeof aliceRow.rows[0].state === 'object')
+            ? { ...aliceRow.rows[0].state }
+            : {};
+        st.resources = { ...(st.resources || {}), population: 100000 };
+        await db.query('UPDATE players SET state = $1 WHERE username = $2', [st, 'alice']);
+    }
+    const virusSpend = await fetch(`${base}/api/economy/spend`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+        body: JSON.stringify({ resources: { population: 100000 } }),
+    }).then(r => r.json());
+    check('virus population spend wipes to 0', virusSpend.success === true && (virusSpend.resources?.population || 0) === 0);
+
     // ── world PUT lockdown + action-validated market/chat ──
     const badWorld = await fetch(`${base}/api/world/not_a_real_key`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },

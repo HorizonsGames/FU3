@@ -265,9 +265,11 @@ const GRANT_LIMITS = {
         maxItems: 8,
     },
     search: {
-        resources: { metal: 0, he3: 0, food: 50000, credits: 0, researchPoints: 200 },
+        // Batch Search All can return many unique mats; quantities stack per row.
+        resources: { metal: 0, he3: 0, food: 50000, credits: 0, researchPoints: 5000, population: 0 },
         horizonCoins: 0,
-        maxItems: 3,
+        maxItems: 100,
+        maxQtyPerItem: 500,
     },
     craft: {
         resources: { metal: 0, he3: 0, food: 0, credits: 0, researchPoints: 0 },
@@ -318,7 +320,13 @@ function clampGrant(reason, gains, items, isAdmin) {
         Math.max(0, Math.floor(Number(gains?.horizonCoins) || 0)),
         lim.horizonCoins || 0
     );
-    const inventoryAdd = Array.isArray(items) ? items.slice(0, lim.maxItems || 0) : [];
+    const maxQty = Math.max(1, Math.floor(Number(lim.maxQtyPerItem) || 999));
+    const inventoryAdd = Array.isArray(items)
+        ? items.slice(0, lim.maxItems || 0).map((item) => {
+            const qty = Math.min(maxQty, Math.max(1, Math.floor(Number(item?.quantity) || 1)));
+            return { ...item, quantity: qty };
+        })
+        : [];
     return { resources, horizonCoins, inventoryAdd };
 }
 
