@@ -19,12 +19,24 @@
 //                           relay each player's ship-state, and the client
 //                           lays out anyone in `members` in a ring around
 //                           the boss sprite at the center of the canvas.
+//   combat:planet:<id>   — coalition N-way engagement on a planet
+//   combat:cluster:<id>  — coalition N-way engagement on a cluster
+//
+// Coalition combat (roomType 'combat') — host-client is resolution authority
+// for v1; this relay only fans out battle_event payloads. Payload.kind values:
+//   join_engagement   — late joiner requests a seat { team, stacks, username, participantId }
+//   join_queued       — host ack that joiner waits for next round boundary
+//   engagement_state  — host snapshot { round, participants[] }
+//   wave_step         — host resolved face-off { event, participants[] }
+//   participant_left  — retreat / disconnect { participantId, reason }
+//   engagement_end    — final { result } (victoryTeam, claimWinner, participants, log)
+//   host_handoff      — promote new host { newHostId, newHostUsername }
 //
 // Message types (client -> server):
 //   { type: 'join_room',  roomId, roomType }
 //   { type: 'leave_room', roomId }
 //   { type: 'ship_state', roomId, payload }   // ship positions/hp for this player's fleet, this tick
-//   { type: 'battle_event', roomId, payload } // discrete events: ship destroyed, projectile fired, victory/defeat
+//   { type: 'battle_event', roomId, payload } // discrete events incl. coalition kinds above
 //   { type: 'chat', roomId, payload }         // { text }
 //
 // Message types (server -> client):
