@@ -13017,16 +13017,19 @@
                 'Confederacy Capitol Ship': 'Confederacy.jpg'
             },
             'The Ascended': {
-                'Scout Ship': 'Prior_Scout.jpg',
-                'Light Frigate': 'light_frigate.jpg',
-                'Acolyte Frigate': 'Acolyte.jpg',
-                'Vision Cruiser': 'Vision.jpg',
-                'Divine Cruiser': 'Divine.jpg',
-                'Truth Battlecruiser': 'Truth.jpg',
-                'Tempest Battlecruiser': 'Battlecruiser.jpg',
-                'Transcendence Battleship': 'Transcendence.jpg',
-                'Rebirth Battleship': 'Rebirth.jpg',
-                'Holy Endeavour Capitol Ship': 'Holy_Endevour.jpg'
+                'Drone Fodder': 'assets/ships/ascended-drone-fodder.png',
+                'Drone Striker': 'assets/ships/ascended-drone-striker.png',
+                'Scout Ship': 'assets/ships/ascended-scout-ship.png',
+                'Light Frigate': 'assets/ships/ascended-light-frigate.png',
+                'Acolyte Frigate': 'assets/ships/ascended-acolyte-frigate.png',
+                'Vision Cruiser': 'assets/ships/ascended-vision-cruiser.png',
+                'Divine Cruiser': 'assets/ships/ascended-divine-cruiser.png',
+                'Truth Battlecruiser': 'assets/ships/ascended-truth-battlecruiser.png',
+                'Tempest Battlecruiser': 'assets/ships/ascended-tempest-battlecruiser.png',
+                'Transcendence Battleship': 'assets/ships/ascended-transcendence-battleship.png',
+                'Rebirth Battleship': 'assets/ships/ascended-rebirth-battleship.png',
+                'Prophet Battleship': 'assets/ships/ascended-prophet-battleship.png',
+                'Holy Endeavour Capitol Ship': 'assets/ships/ascended-holy-endeavour-capitol.png'
             },
             'The Viral Race': {
                 'Spores': 'Spores.png',
@@ -13073,16 +13076,19 @@ const SHIP_IMAGE_DATA = {
     'Triumph Capitol Ship': 'assets/asset_043.jpg',
   },
   'The Ascended': {
-    'Scout Ship': 'assets/asset_044.jpg',
-    'Light Frigate': 'assets/asset_045.jpg',
-    'Acolyte Frigate': 'assets/asset_046.jpg',
-    'Vision Cruiser': 'assets/asset_047.jpg',
-    'Divine Cruiser': 'assets/asset_048.jpg',
-    'Truth Battlecruiser': 'assets/asset_049.jpg',
-    'Tempest Battlecruiser': 'assets/asset_050.jpg',
-    'Transcendence Battleship': 'assets/asset_051.jpg',
-    'Rebirth Battleship': 'assets/asset_052.jpg',
-    'Holy Endeavour Capitol Ship': 'assets/asset_053.jpg',
+    'Drone Fodder': 'assets/ships/ascended-drone-fodder.png',
+    'Drone Striker': 'assets/ships/ascended-drone-striker.png',
+    'Scout Ship': 'assets/ships/ascended-scout-ship.png',
+    'Light Frigate': 'assets/ships/ascended-light-frigate.png',
+    'Acolyte Frigate': 'assets/ships/ascended-acolyte-frigate.png',
+    'Vision Cruiser': 'assets/ships/ascended-vision-cruiser.png',
+    'Divine Cruiser': 'assets/ships/ascended-divine-cruiser.png',
+    'Truth Battlecruiser': 'assets/ships/ascended-truth-battlecruiser.png',
+    'Tempest Battlecruiser': 'assets/ships/ascended-tempest-battlecruiser.png',
+    'Transcendence Battleship': 'assets/ships/ascended-transcendence-battleship.png',
+    'Rebirth Battleship': 'assets/ships/ascended-rebirth-battleship.png',
+    'Prophet Battleship': 'assets/ships/ascended-prophet-battleship.png',
+    'Holy Endeavour Capitol Ship': 'assets/ships/ascended-holy-endeavour-capitol.png',
   },
   'The Viral Race': {
     'Spores':      'Spores.png',
@@ -13094,19 +13100,55 @@ const SHIP_IMAGE_DATA = {
   }
 };
         
-        // Image loader using embedded base64 data
+        // Image loader — prefers race ship defs, then mapped asset tables
         class ImageLoader {
-            async loadImage(filename, raceName, shipName) {
-                // Try SHIP_IMAGE_DATA first (asset-mapped images)
+            resolveCandidates(filename, raceName, shipName, shipData) {
+                const out = [];
+                const push = (p) => { if (p && !out.includes(p)) out.push(p); };
+                // Prefer the ship definition's image/battleSprite (canonical PNG paths)
+                if (shipData) {
+                    push(shipData.image);
+                    push(shipData.battleSprite);
+                }
                 if (typeof SHIP_IMAGE_DATA !== 'undefined' && SHIP_IMAGE_DATA[raceName]?.[shipName]) {
-                    return SHIP_IMAGE_DATA[raceName][shipName];
+                    push(SHIP_IMAGE_DATA[raceName][shipName]);
                 }
-                // Fallback: use the filename directly (for uploaded images like Viral Race ships)
-                if (filename) {
-                    return filename;
+                if (typeof SHIP_IMAGES !== 'undefined' && SHIP_IMAGES[raceName]?.[shipName]) {
+                    push(SHIP_IMAGES[raceName][shipName]);
                 }
-                console.warn('No image found for:', raceName, shipName);
-                return null;
+                // Common Ascended duplicates lived at assets/<name>.png as well as assets/ships/
+                if (shipData && shipData.image && shipData.image.startsWith('assets/ships/')) {
+                    push(shipData.image.replace('assets/ships/', 'assets/'));
+                }
+                push(filename);
+                return out;
+            }
+
+            async loadImage(filename, raceName, shipName, shipData) {
+                const candidates = this.resolveCandidates(filename, raceName, shipName, shipData);
+                if (!candidates.length) {
+                    console.warn('No image found for:', raceName, shipName);
+                    return null;
+                }
+                return candidates[0];
+            }
+
+            // Try candidates until one actually loads in the browser
+            tryLoadInto(imgEl, candidates) {
+                return new Promise((resolve) => {
+                    let i = 0;
+                    const tryNext = () => {
+                        if (i >= candidates.length) {
+                            resolve(null);
+                            return;
+                        }
+                        const src = candidates[i++];
+                        imgEl.onload = () => resolve(src);
+                        imgEl.onerror = () => tryNext();
+                        imgEl.src = src;
+                    };
+                    tryNext();
+                });
             }
         }
         
@@ -13117,9 +13159,19 @@ const SHIP_IMAGE_DATA = {
             constructor() {
                 this.modal = document.getElementById('shipViewerModal');
             }
+
+            _comingSoonHtml() {
+                return `
+                    <div style="padding: 40px; text-align: center; background: rgba(0, 217, 255, 0.05); border-radius: 8px;">
+                        <div style="font-size: 48px; margin-bottom: 12px;">🚀</div>
+                        <div style="color: var(--accent-primary); font-size: 16px; font-weight: 700; margin-bottom: 8px;">Coming Soon</div>
+                        <div style="color: var(--text-secondary); font-size: 12px;">Ship image will be available in a future update</div>
+                    </div>
+                `;
+            }
             
             async show(shipData, raceName) {
-                const imageFilename = SHIP_IMAGES[raceName]?.[shipData.name];
+                const imageFilename = SHIP_IMAGES[raceName]?.[shipData.name] || shipData.image || null;
                 
                 // Show modal immediately
                 this.modal.classList.add('active');
@@ -13137,38 +13189,25 @@ const SHIP_IMAGE_DATA = {
                 document.getElementById('shipViewerTime').textContent = this.formatTime(shipData.time);
                 document.getElementById('shipViewerDescription').textContent = shipData.description;
                 
-                const imageEl = document.getElementById('shipViewerImage');
-                const imageContainer = document.querySelector('.ship-viewer-image-container');
-                
-                if (imageFilename) {
-                    // Show loading state
+                const imageContainer = this.modal.querySelector('.ship-viewer-image-container');
+                const candidates = imageLoader.resolveCandidates(imageFilename, raceName, shipData.name, shipData);
+
+                if (candidates.length) {
                     imageContainer.innerHTML = '<div style="color: var(--text-secondary); font-size: 14px; padding: 20px;">Loading image...</div>';
-                    
-                    // Load the image using race name and ship name (async - don't block)
-                    imageLoader.loadImage(imageFilename, raceName, shipData.name).then(dataUrl => {
-                        if (dataUrl) {
-                            imageContainer.innerHTML = '';
-                            imageEl.src = dataUrl;
-                            imageEl.style.display = 'block';
-                            imageContainer.appendChild(imageEl);
-                        } else {
-                            imageContainer.innerHTML = `
-                                <div style="padding: 40px; text-align: center; background: rgba(0, 217, 255, 0.05); border-radius: 8px;">
-                                    <div style="font-size: 48px; margin-bottom: 12px;">🚀</div>
-                                    <div style="color: var(--accent-primary); font-size: 16px; font-weight: 700; margin-bottom: 8px;">Coming Soon</div>
-                                    <div style="color: var(--text-secondary); font-size: 12px;">Ship image will be available in a future update</div>
-                                </div>
-                            `;
-                        }
-                    });
+                    const imageEl = document.createElement('img');
+                    imageEl.className = 'ship-viewer-image';
+                    imageEl.id = 'shipViewerImage';
+                    imageEl.alt = shipData.name;
+                    imageEl.style.display = 'block';
+                    const loaded = await imageLoader.tryLoadInto(imageEl, candidates);
+                    if (loaded) {
+                        imageContainer.innerHTML = '';
+                        imageContainer.appendChild(imageEl);
+                    } else {
+                        imageContainer.innerHTML = this._comingSoonHtml();
+                    }
                 } else {
-                    imageContainer.innerHTML = `
-                        <div style="padding: 40px; text-align: center; background: rgba(0, 217, 255, 0.05); border-radius: 8px;">
-                            <div style="font-size: 48px; margin-bottom: 12px;">🚀</div>
-                            <div style="color: var(--accent-primary); font-size: 16px; font-weight: 700; margin-bottom: 8px;">Coming Soon</div>
-                            <div style="color: var(--text-secondary); font-size: 12px;">Ship image will be available in a future update</div>
-                        </div>
-                    `;
+                    imageContainer.innerHTML = this._comingSoonHtml();
                 }
             }
             

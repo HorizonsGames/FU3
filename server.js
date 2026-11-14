@@ -32,8 +32,8 @@ app.use(cors({
         // Dev convenience when ALLOWED_ORIGINS is unset
         if (!allowedOrigins.length) return callback(null, true);
         if (allowedOrigins.includes(origin)) return callback(null, true);
-        // Netlify production + deploy previews for the fu-v25 site
-        if (/^https:\/\/([a-z0-9-]+--)?fu-v25\.netlify\.app$/i.test(origin)) {
+        // Netlify production + deploy previews (fu-v25 primary, fu-v23 legacy)
+        if (/^https:\/\/([a-z0-9-]+--)?fu-v2[35]\.netlify\.app$/i.test(origin)) {
             return callback(null, true);
         }
         return callback(null, false);
