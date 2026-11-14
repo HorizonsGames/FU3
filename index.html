@@ -15280,10 +15280,10 @@ const SHIP_IMAGE_DATA = {
                 }
             }
 
-            saveGameState() {
+            saveGameState(opts) {
                 // Prefer AuthManager (writes local DB + MP server). Fall back to MP-only.
                 if (window.auth && typeof window.auth.saveGameState === 'function') {
-                    window.auth.saveGameState();
+                    window.auth.saveGameState(opts);
                     return;
                 }
                 if (window.MP && window.MP.token) {
@@ -16796,11 +16796,19 @@ const SHIP_IMAGE_DATA = {
                                 `<button onclick="event.stopPropagation(); game.destroyPlanet(${planet.id})" 
                                     style="margin-top: 4px; width: 100%; padding: 3px; background: rgba(255, 0, 0, 0.1); border: 1px solid #ff4a4a; border-radius: 3px; color: #ff4a4a; font-size: 9px; cursor: pointer;">
                                     💥 Destroy
+                                </button>
+                                <button onclick="event.stopPropagation(); game.reinforceLiveTarget('planet', ${planet.id})" 
+                                    style="margin-top: 3px; width: 100%; padding: 3px; background: rgba(0, 217, 255, 0.1); border: 1px solid #00d9ff; border-radius: 3px; color: #00d9ff; font-size: 9px; cursor: pointer; font-weight: 700;">
+                                    🛡️ Reinforce Live
                                 </button>` 
                             : planet.owner ? 
                                 `<button onclick="event.stopPropagation(); game.attackPlanet(${planet.id})" 
                                     style="margin-top: 4px; width: 100%; padding: 3px; background: rgba(255, 136, 0, 0.1); border: 1px solid #ff8800; border-radius: 3px; color: #ff8800; font-size: 9px; cursor: pointer; font-weight: 700;">
                                     ⚔️ Attack
+                                </button>
+                                <button onclick="event.stopPropagation(); game.joinLiveAttackOnTarget('planet', ${planet.id})" 
+                                    style="margin-top: 3px; width: 100%; padding: 3px; background: rgba(168, 85, 247, 0.12); border: 1px solid #a855f7; border-radius: 3px; color: #c084fc; font-size: 9px; cursor: pointer; font-weight: 700;">
+                                    🤝 Join Live Assault
                                 </button>
                                 <button onclick="event.stopPropagation(); game.initiateSiege(${planet.id})" 
                                     style="margin-top: 3px; width: 100%; padding: 3px; background: rgba(255, 51, 0, 0.1); border: 1px solid #cc4400; border-radius: 3px; color: #ff6622; font-size: 9px; cursor: pointer; font-weight: 700;">
@@ -20873,7 +20881,7 @@ const SHIP_IMAGE_DATA = {
                     return;
                 }
                 
-                // Calculate defense
+                // Calculate defense (used for synthetic planetary battery stacks)
                 let defense = 1000;
                 if (target.buildings) {
                     defense += (target.buildings['Missile Silo']  || 0) * 500;
@@ -20906,25 +20914,89 @@ const SHIP_IMAGE_DATA = {
                 if (this.hasRaceTech('psionic_barrage')) atkMult *= 1.18;
                 if (this.hasRaceTech('corrosion_spores')) atkMult *= 1.12;
                 const effectiveAttackPower = Math.floor(attackPower * atkMult);
-                const isVictory = effectiveAttackPower > defense;
+
+                // Coalition stack-wave engagement (self attack + NPC/owner defense)
+                const colors = this._participantColors();
+                const myName = this.playerData?.username || this.username || 'Attacker';
+                let attackerStacks;
+                if (missionFleetIndex != null && this.fleets[missionFleetIndex]) {
+                    attackerStacks = this._stacksFromFleet(this.fleets[missionFleetIndex]);
+                } else {
+                    attackerStacks = this._stacksFromAttackForce(attackForce);
+                }
+                const defenderStacks = this._defenderStacksFromPlanet(target, defense);
+                const participants = [
+                    this._makeCombatParticipant({
+                        id: `player_${myName}`,
+                        username: myName,
+                        team: 'attack',
+                        stacks: attackerStacks,
+                        color: colors[0],
+                        isSelf: true,
+                        fleetIndex: missionFleetIndex,
+                        dmgMult: atkMult,
+                    }),
+                    this._makeCombatParticipant({
+                        id: `npc_${target.id || target.name}`,
+                        username: target.owner || target.name,
+                        team: 'defend',
+                        stacks: defenderStacks,
+                        color: colors[4],
+                        isSelf: false,
+                        isNpc: true,
+                        dmgMult: 1,
+                    }),
+                ];
+                const roomId = this._combatRoomId('planet', target.id || target.name);
+
+                this.startCoalitionCombat({
+                    title: `Assault — ${target.name}`,
+                    attackerName: myName,
+                    defenderName: target.name,
+                    participants,
+                    aDmgMult: 1,
+                    bDmgMult: 1,
+                    interactive: true,
+                    roomId,
+                    isHost: true,
+                    targetKind: 'planet',
+                    targetId: target.id || target.name,
+                    onComplete: (waveResult) => {
+                        this._finalizePlanetWaveAttack(target, attackForce, attackPower, defense, effectiveAttackPower, missionFleetIndex, missionShips, waveResult);
+                    },
+                });
+            }
+
+            _finalizePlanetWaveAttack(target, attackForce, attackPower, defense, effectiveAttackPower, missionFleetIndex, missionShips, waveResult) {
+                const isVictory = !!(waveResult && waveResult.victory);
+                const retreated = !!(waveResult && waveResult.retreated);
+                const myName = this.playerData?.username || this.username;
+                const selfPart = (waveResult.participants || []).find(p => p.isSelf && p.team === 'attack')
+                    || (waveResult.participants || []).find(p => p.username === myName && p.team === 'attack');
+                const claim = waveResult.claimWinner;
+                const iClaimed = !!(isVictory && (!claim || claim.username === myName || (selfPart && claim.id === selfPart.id)));
+
+                // Apply attacker survivors back to fleet or hangar (prefer self participant stacks)
+                const selfStacks = selfPart ? (selfPart.stacks || []) : (waveResult.attackerStacks || []);
+                if (missionFleetIndex != null && this.fleets[missionFleetIndex]) {
+                    this._applyStacksToFleet(this.fleets[missionFleetIndex], selfStacks);
+                } else {
+                    this._syncHangarFromStackDiff(attackForce, selfStacks);
+                }
 
                 // ── Compute per-ship losses for the After-Action Report ──
                 const attackerLosses    = {};
                 const defenderDestroyed = {};
-                let lossRate = isVictory ? 0.20 : 0.50;
-                if (this.hasRaceTech('patched_hulls')) lossRate *= 0.80; // player is attacker here
-                if (this.hasRaceTech('ethereal_hulls')) lossRate *= 0.85;
-                if (this.hasRaceTech('host_adaptation')) lossRate *= 0.82;
-
-                // Attacker losses — based on outcome percentage
-                Object.entries(attackForce).forEach(([shipName, quantity]) => {
-                    const losses = Math.ceil(quantity * lossRate);
-                    attackerLosses[shipName] = losses;
+                Object.entries(attackForce || {}).forEach(([shipName, quantity]) => {
+                    const before = Math.floor(Number(quantity) || 0);
+                    const afterStack = (waveResult.attackerStacks || []).find(s => s.shipType === shipName);
+                    const after = afterStack ? afterStack.count : 0;
+                    const lost = Math.max(0, before - after);
+                    if (lost > 0) attackerLosses[shipName] = lost;
                 });
 
-                // Defender destroyed — garrison ships killed if player wins, degraded if player loses
+                // Defender destroyed — garrison ships killed if player wins, survivors if not
                 if (isVictory) {
-                    // Clear the garrison — ships are destroyed in the assault
                     if (target.botGarrison) {
                         Object.entries(target.botGarrison).forEach(([type, data]) => {
                             if (data.count > 0) defenderDestroyed[type] = data.count;
@@ -20938,11 +21010,18 @@ const SHIP_IMAGE_DATA = {
                         });
                     }
                 } else {
-                    // Attacker defeated — garrison takes minor losses too (10-20%)
+                    // Update garrison from surviving non-synthetic defender stacks
                     if (target.botGarrison) {
-                        const garrisonLoss = 0.10 + Math.random() * 0.10;
-                        Object.values(target.botGarrison).forEach(data => {
-                            data.count = Math.max(0, Math.floor(data.count * (1 - garrisonLoss)));
+                        const surviving = {};
+                        (waveResult.defenderStacks || []).forEach(s => {
+                            if (s.isSynthetic) return;
+                            surviving[s.shipType] = (surviving[s.shipType] || 0) + s.count;
+                        });
+                        Object.keys(target.botGarrison).forEach(type => {
+                            const left = surviving[type] || 0;
+                            const before = target.botGarrison[type]?.count || 0;
+                            if (before > left) defenderDestroyed[type] = before - left;
+                            if (target.botGarrison[type]) target.botGarrison[type].count = left;
                         });
                         target.botGarrisonPower = Object.values(target.botGarrison)
                             .reduce((s, v) => s + (v.damage || 100) * (v.count || 0), 0);
@@ -20953,10 +21032,6 @@ const SHIP_IMAGE_DATA = {
                 const infectResults = [];
                 const viralGained   = [];
 
-                // Show battle simulation with full report data
-                const battleReport = { attackerLosses, defenderDestroyed, infectResults, viralGained };
-                this.showBattleSimulation(target, attackForce, attackPower, defense, isVictory, battleReport);
-                
                 // Terror Doctrine (Reaper Collective) — drain 15% of defender food when attacking
                 if (this.hasRaceTech('terror_doctrine') && target.resources?.food) {
                     target.resources.food = Math.max(0, Math.floor(target.resources.food * 0.85));
@@ -20968,20 +21043,29 @@ const SHIP_IMAGE_DATA = {
                         // NPC planets may not store food locally; soft drain ignored
                     }
                 }
-                this.showNotification(`⚔️ Battle at ${target.name}! Attack: ${effectiveAttackPower} vs Defense: ${defense}`);
-                
-                // Wait for simulation to complete (30 seconds)
-                setTimeout(() => {
-                    if (isVictory) {
-                        // Victory — apply pre-computed losses
-                        const prevOwner = target.owner;
-                        target.owner = this.selectedRace.name;
-                        target.buildings = {};
+                if (retreated) {
+                    this.showNotification(`🏃 Retreated from ${target.name}. Survivors recovered.`);
+                } else {
+                    this.showNotification(`⚔️ Engagement at ${target.name} — resolving stack waves…`);
+                }
 
-                        Object.entries(attackerLosses).forEach(([shipName, losses]) => {
-                            const ship = this.ships[shipName];
-                            if (ship) ship.count = Math.max(0, ship.count - losses);
-                        });
+                const applyAftermath = () => {
+                    if (retreated) {
+                        this.updateResources();
+                        this.renderOwnedPlanets();
+                        this.renderFleetList && this.renderFleetList();
+                        this.saveGameState();
+                        return;
+                    }
+                    if (isVictory) {
+                        // Victory — contested claim goes to top remaining attacker power
+                        const prevOwner = target.owner;
+                        if (iClaimed) {
+                            target.owner = this.selectedRace.name;
+                            target.buildings = {};
+                        }
+
+                        // Ship losses already applied by wave combat (fleet stacks or hangar sync).
 
                         // Loot / economy race techs on victory
                         if (this.hasRaceTech('blood_tithe')) {
@@ -21031,7 +21115,11 @@ const SHIP_IMAGE_DATA = {
                         this.renderEnemyPlanets();
                         this.renderShips();
                         this.updateMap();
-                        this.showNotification(`✨ Victory! ${target.name} captured! (Lost ${Object.values(attackerLosses).reduce((s,c)=>s+c,0)} ships)`);
+                        if (iClaimed) {
+                            this.showNotification(`✨ Victory! ${target.name} captured! (Lost ${Object.values(attackerLosses).reduce((s,c)=>s+c,0)} ships)`);
+                        } else {
+                            this.showNotification(`🤝 Attack succeeded — ${claim?.username || 'an ally'} claimed ${target.name}. Assist credited.`);
+                        }
 
                         // Viral Race: attempt infect on enemy defending ships
                         if (this.isViralRace()) {
@@ -21089,11 +21177,7 @@ const SHIP_IMAGE_DATA = {
                             });
                         }
                     } else {
-                        // Defeat — apply pre-computed losses
-                        Object.entries(attackerLosses).forEach(([shipName, losses]) => {
-                            const ship = this.ships[shipName];
-                            if (ship) ship.count = Math.max(0, ship.count - losses);
-                        });
+                        // Defeat — ship losses already applied by wave combat.
 
                         // Record to battle history
                         this._recordBattle({
@@ -21141,7 +21225,22 @@ const SHIP_IMAGE_DATA = {
                     }
                     this.calculatePlayerPowerRating && this.calculatePlayerPowerRating();
                     this.saveGameState();
-                }, 30000); // 30 second battle
+                };
+
+                // Battle animation first — outcome / capture only after waves finish playing
+                const battleReport = {
+                    attackerLosses,
+                    defenderDestroyed,
+                    infectResults,
+                    viralGained,
+                    retreated,
+                    waveLog: waveResult.log || [],
+                    participants: waveResult.participants || [],
+                    initialAttackerStacks: waveResult.initialAttackerStacks || [],
+                    initialDefenderStacks: waveResult.initialDefenderStacks || [],
+                    onAnimationComplete: applyAftermath,
+                };
+                this.showBattleSimulation(target, attackForce, attackPower, defense, isVictory, battleReport);
             }
             
             showBattleSimulation(target, attackForce, attackPower, defense, isVictory, battleReport) {
@@ -21150,18 +21249,49 @@ const SHIP_IMAGE_DATA = {
                 const defenderDestroyed = report.defenderDestroyed || {};
                 const infectResults     = report.infectResults     || [];
                 const viralGained       = report.viralGained       || [];
+                const retreated         = !!report.retreated;
+                const participants      = Array.isArray(report.participants) ? report.participants : [];
 
                 const modal = document.createElement('div');
                 modal.id = 'battleSimulation';
                 modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.97);z-index:10002;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;padding:40px 20px;`;
 
-                const totalSent   = Object.values(attackForce).reduce((s,c)=>s+c, 0);
+                const totalSent   = Object.values(attackForce || {}).reduce((s,c)=>s+c, 0);
                 const totalLost   = Object.values(attackerLosses).reduce((s,c)=>s+c, 0);
                 const totalKilled = Object.values(defenderDestroyed).reduce((s,c)=>s+c, 0);
                 const survived    = totalSent - totalLost;
                 const isViral     = this.isViralRace();
-                const outcomeColor = isVictory ? '#00ff88' : '#ff4a4a';
-                const outcomeLabel = isVictory ? '\u2694\ufe0f VICTORY' : '\ud83d\udc80 DEFEAT';
+                const outcomeColor = retreated ? '#ffd700' : (isVictory ? '#00ff88' : '#ff4a4a');
+                const outcomeLabel = retreated ? '🏃 RETREATED' : (isVictory ? '\u2694\ufe0f ATTACK VICTORY' : '\ud83d\udee1\ufe0f DEFENSE HOLDS');
+
+                const atkParts = participants.filter(p => p.team === 'attack');
+                const defParts = participants.filter(p => p.team === 'defend');
+                const rosterHtml = participants.length ? `
+                    <div id="battleCoalitionRoster" style="display:flex;justify-content:center;gap:24px;flex-wrap:wrap;margin-bottom:16px;font-size:11px;">
+                        <div style="text-align:left;min-width:180px;">
+                            <div style="color:#00d9ff;font-weight:700;margin-bottom:6px;">ATTACK COALITION</div>
+                            ${atkParts.map(p => `<div style="color:${p.color || '#00d9ff'};margin:2px 0;">● ${p.username}${p.retreated ? ' (retreated)' : ''}</div>`).join('') || '<div style="color:#8ba3c7;">—</div>'}
+                        </div>
+                        <div style="text-align:left;min-width:180px;">
+                            <div style="color:#ff4a4a;font-weight:700;margin-bottom:6px;">DEFEND COALITION</div>
+                            ${defParts.map(p => `<div style="color:${p.color || '#ff4a4a'};margin:2px 0;">● ${p.username}${p.retreated ? ' (retreated)' : ''}</div>`).join('') || '<div style="color:#8ba3c7;">—</div>'}
+                        </div>
+                    </div>` : '';
+
+                const perPlayerAar = participants.length ? participants.map(p => {
+                    const before = {};
+                    const after = {};
+                    (p.initialStacks || []).forEach(s => { before[s.shipType] = (before[s.shipType] || 0) + s.count; });
+                    (p.stacks || []).forEach(s => { after[s.shipType] = (after[s.shipType] || 0) + s.count; });
+                    const rows = Object.keys(before).map(k => {
+                        const lost = Math.max(0, before[k] - (after[k] || 0));
+                        return `<tr><td style="padding:3px 8px;color:#e8f0ff;">${k}</td><td style="text-align:center;color:#8ba3c7;">${before[k]}</td><td style="text-align:center;color:#ff4a4a;">${lost ? '-' + lost : '—'}</td><td style="text-align:center;color:#00ff88;">${after[k] || 0}</td></tr>`;
+                    }).join('');
+                    return `<div style="margin-top:12px;padding:10px;border:1px solid ${p.color || '#3d7eff'};border-radius:8px;">
+                        <div style="font-size:12px;font-weight:700;color:${p.color || '#e8f0ff'};margin-bottom:6px;">${p.team === 'attack' ? '⚔' : '🛡'} ${p.username}${p.retreated ? ' · retreated' : ''}</div>
+                        <table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="color:#8ba3c7;"><th style="text-align:left;padding:2px 8px;">Ship</th><th>Sent</th><th>Lost</th><th>Left</th></tr></thead><tbody>${rows || '<tr><td colspan="4" style="color:#8ba3c7;padding:4px 8px;">No ships</td></tr>'}</tbody></table>
+                    </div>`;
+                }).join('') : '';
 
                 const lossRows = Object.entries(attackForce).map(([shipName, sent]) => {
                     const lost = attackerLosses[shipName] || 0;
@@ -21202,25 +21332,27 @@ const SHIP_IMAGE_DATA = {
                     </div>` : '';
 
                 modal.innerHTML = `<div style="width:90%;max-width:900px;text-align:center;position:relative;">
-                    <button onclick="document.getElementById('battleSimulation').remove();clearInterval(window.battleTimerInterval);"
+                    <button onclick="window._battleSkip=true;document.getElementById('battleSimulation').remove();clearInterval(window.battleTimerInterval);"
                         style="position:absolute;top:-30px;right:0;width:50px;height:50px;background:#ff3366;border:2px solid #ff4a4a;border-radius:50%;color:white;font-size:24px;cursor:pointer;font-weight:900;z-index:10003;">\u2716</button>
-                    <div style="font-size:48px;font-weight:900;margin-bottom:12px;color:${outcomeColor};font-family:'Orbitron',sans-serif;text-shadow:0 0 20px ${outcomeColor};">${outcomeLabel}</div>
-                    <div style="font-size:14px;color:#8ba3c7;margin-bottom:24px;">Battle at <span style="color:#e8f0ff;font-weight:700;">${target.name}</span>${target.owner ? ' &nbsp;\u00b7&nbsp; <span style=\"color:#ff8800;\">Controlled by '+target.owner+'</span>' : ''}</div>
+                    <div id="battleOutcomeLabel" style="font-size:28px;font-weight:900;margin-bottom:12px;color:#8ba3c7;font-family:'Orbitron',sans-serif;">⚔ ENGAGEMENT IN PROGRESS</div>
+                    <div id="battleWaveBanner" style="font-size:13px;color:#ffd700;margin-bottom:10px;min-height:18px;font-weight:700;"></div>
+                    <div style="font-size:14px;color:#8ba3c7;margin-bottom:16px;">Battle at <span style="color:#e8f0ff;font-weight:700;">${target.name}</span>${target.owner ? ' &nbsp;\u00b7&nbsp; <span style=\"color:#ff8800;\">Controlled by '+target.owner+'</span>' : ''}</div>
+                    ${rosterHtml}
                     <div style="display:flex;justify-content:center;gap:30px;margin-bottom:24px;flex-wrap:wrap;">
                         <div style="padding:16px 24px;background:rgba(0,217,255,0.1);border-radius:10px;border:2px solid var(--accent-primary);min-width:140px;">
-                            <div style="font-size:11px;color:#8ba3c7;margin-bottom:6px;">YOUR ATTACK</div>
+                            <div style="font-size:11px;color:#8ba3c7;margin-bottom:6px;">ATTACK COALITION</div>
                             <div style="font-size:28px;font-weight:900;color:var(--accent-primary);">${attackPower.toLocaleString()}</div>
-                            <div style="font-size:11px;color:#8ba3c7;margin-top:4px;">${totalSent.toLocaleString()} ships</div>
+                            <div style="font-size:11px;color:#8ba3c7;margin-top:4px;">${totalSent.toLocaleString()} ships · ${Math.max(1, atkParts.length || 1)} force(s)</div>
                         </div>
                         <div style="font-size:40px;align-self:center;">VS</div>
                         <div style="padding:16px 24px;background:rgba(255,74,74,0.1);border-radius:10px;border:2px solid #ff4a4a;min-width:140px;">
-                            <div style="font-size:11px;color:#8ba3c7;margin-bottom:6px;">DEFENSE</div>
+                            <div style="font-size:11px;color:#8ba3c7;margin-bottom:6px;">DEFEND COALITION</div>
                             <div style="font-size:28px;font-weight:900;color:#ff4a4a;">${defense.toLocaleString()}</div>
-                            <div style="font-size:11px;color:#8ba3c7;margin-top:4px;">${target.name}</div>
+                            <div style="font-size:11px;color:#8ba3c7;margin-top:4px;">${target.name} · ${Math.max(1, defParts.length || 1)} force(s)</div>
                         </div>
                     </div>
-                    <div id="battleVisualization" style="width:100%;height:420px;background:#020510;border-radius:12px;overflow:hidden;border:2px solid ${outcomeColor};margin-bottom:24px;position:relative;"></div>
-                    <div style="text-align:left;background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:16px;">
+                    <div id="battleVisualization" style="width:100%;height:420px;background:#020510;border-radius:12px;overflow:hidden;border:2px solid #3d7eff;margin-bottom:24px;position:relative;"></div>
+                    <div id="battleAAR" style="display:none;text-align:left;background:var(--bg-secondary);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:20px;margin-bottom:16px;">
                         <div style="font-family:'Orbitron',sans-serif;font-size:13px;letter-spacing:2px;color:#8ba3c7;margin-bottom:16px;">\ud83d\udccb AFTER-ACTION REPORT</div>
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:18px;">
                             <div style="padding:10px;background:rgba(0,0,0,0.3);border-radius:6px;text-align:center;">
@@ -21260,17 +21392,18 @@ const SHIP_IMAGE_DATA = {
                             <div style="font-size:11px;font-weight:700;color:#8ba3c7;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.07);padding-bottom:5px;">Enemy Ships Destroyed</div>
                             <table style="width:100%;border-collapse:collapse;font-size:12px;"><tbody>${killRows}</tbody></table>
                         </div>
+                        ${perPlayerAar ? `<div style="margin-top:16px;"><div style="font-size:11px;font-weight:700;color:#8ba3c7;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Per-Commander Breakdown</div>${perPlayerAar}</div>` : ''}
                         ${infectSection}
                     </div>
                     <div style="display:flex;flex-direction:column;gap:10px;align-items:center;">
-                        <div id="battleTimer" style="font-size:16px;color:#8ba3c7;">Auto-close in: <span style="color:var(--accent-primary);font-weight:700;">30s</span></div>
+                        <div id="battleTimer" style="font-size:16px;color:#8ba3c7;">Stack-wave simulation running…</div>
                         <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center;">
-                            <button onclick="window._battleSkip=true;document.getElementById('battleSimulation').remove();clearInterval(window.battleTimerInterval);"
+                            <button id="battleSkipBtn" onclick="window._battleSkip=true;"
                                 style="padding:12px 28px;background:rgba(255,255,255,0.07);border:2px solid rgba(255,255,255,0.2);border-radius:8px;color:#8ba3c7;font-weight:700;cursor:pointer;font-size:14px;">
                                 ⏭ Skip Animation
                             </button>
-                            <button onclick="document.getElementById('battleSimulation').remove();clearInterval(window.battleTimerInterval);"
-                                style="padding:12px 28px;background:linear-gradient(135deg,#ff3366,#ff4a4a);border:2px solid #ff6688;border-radius:8px;color:white;font-weight:700;cursor:pointer;font-size:14px;text-transform:uppercase;">
+                            <button id="battleCloseBtn" disabled
+                                style="padding:12px 28px;background:rgba(255,255,255,0.05);border:2px solid rgba(255,255,255,0.12);border-radius:8px;color:#555;font-weight:700;cursor:not-allowed;font-size:14px;text-transform:uppercase;">
                                 ✖ Close Report
                             </button>
                         </div>
@@ -21278,21 +21411,57 @@ const SHIP_IMAGE_DATA = {
                 </div>`;
 
                 document.body.appendChild(modal);
-                this.animateBattle(isVictory, attackForce, target, attackPower, defense);
 
-                let timeLeft = 45;
-                window.battleTimerInterval = setInterval(() => {
-                    timeLeft--;
-                    const el = document.getElementById('battleTimer');
-                    if (el) el.innerHTML = `Auto-close in: <span style="color:var(--accent-primary);font-weight:700;">${timeLeft}s</span>`;
-                    if (timeLeft <= 0) {
-                        clearInterval(window.battleTimerInterval);
-                        document.getElementById('battleSimulation')?.remove();
+                const revealOutcome = () => {
+                    const label = document.getElementById('battleOutcomeLabel');
+                    if (label) {
+                        label.textContent = outcomeLabel;
+                        label.style.color = outcomeColor;
+                        label.style.textShadow = `0 0 20px ${outcomeColor}`;
+                        label.style.fontSize = '48px';
                     }
-                }, 1000);
+                    const viz = document.getElementById('battleVisualization');
+                    if (viz) viz.style.borderColor = outcomeColor;
+                    const aar = document.getElementById('battleAAR');
+                    if (aar) aar.style.display = 'block';
+                    const closeBtn = document.getElementById('battleCloseBtn');
+                    if (closeBtn) {
+                        closeBtn.disabled = false;
+                        closeBtn.style.cssText = 'padding:12px 28px;background:linear-gradient(135deg,#ff3366,#ff4a4a);border:2px solid #ff6688;border-radius:8px;color:white;font-weight:700;cursor:pointer;font-size:14px;text-transform:uppercase;';
+                        closeBtn.onclick = () => {
+                            document.getElementById('battleSimulation')?.remove();
+                            clearInterval(window.battleTimerInterval);
+                        };
+                    }
+                    let timeLeft = 20;
+                    const timerEl = document.getElementById('battleTimer');
+                    if (timerEl) timerEl.innerHTML = `Auto-close in: <span style="color:var(--accent-primary);font-weight:700;">${timeLeft}s</span>`;
+                    clearInterval(window.battleTimerInterval);
+                    window.battleTimerInterval = setInterval(() => {
+                        timeLeft--;
+                        const el = document.getElementById('battleTimer');
+                        if (el) el.innerHTML = `Auto-close in: <span style="color:var(--accent-primary);font-weight:700;">${timeLeft}s</span>`;
+                        if (timeLeft <= 0) {
+                            clearInterval(window.battleTimerInterval);
+                            document.getElementById('battleSimulation')?.remove();
+                        }
+                    }, 1000);
+                    if (typeof report.onAnimationComplete === 'function') {
+                        try { report.onAnimationComplete(); } catch (e) { console.error(e); }
+                    }
+                };
+
+                this.animateBattle(isVictory, attackForce, target, attackPower, defense, {
+                    waveLog: report.waveLog || [],
+                    initialAttackerStacks: report.initialAttackerStacks || [],
+                    initialDefenderStacks: report.initialDefenderStacks || [],
+                    participants,
+                    retreated,
+                    onComplete: revealOutcome,
+                });
             }
 
-            animateBattle(isVictory, attackForce, target, attackPower, defense) {
+            animateBattle(isVictory, attackForce, target, attackPower, defense, animOpts = {}) {
                 const viz = document.getElementById('battleVisualization');
                 if (!viz) return;
 
@@ -21484,6 +21653,122 @@ const SHIP_IMAGE_DATA = {
                     }
                 }
 
+                // Prefer coalition participants (N-way hemispheres) or flat stack-wave fleets
+                const animParticipants = Array.isArray(animOpts.participants) ? animOpts.participants : [];
+                const initAtk = Array.isArray(animOpts.initialAttackerStacks) ? animOpts.initialAttackerStacks : [];
+                const initDef = Array.isArray(animOpts.initialDefenderStacks) ? animOpts.initialDefenderStacks : [];
+
+                const placeParticipantStacks = (partList, team) => {
+                    const list = team === 'attack' ? attackerShips : defenderShips;
+                    list.length = 0;
+                    const n = Math.max(1, partList.length);
+                    const cx = W * 0.5, cy = H * 0.5;
+                    const radius = Math.min(W, H) * 0.34;
+                    partList.forEach((part, pi) => {
+                        // Attack: left hemisphere (-π/2 .. π/2 via π); Defend: right hemisphere
+                        const t = n === 1 ? 0.5 : pi / (n - 1);
+                        const angle = team === 'attack'
+                            ? (Math.PI * 0.55 + t * Math.PI * 0.9)   // ~left arc
+                            : (-Math.PI * 0.45 + t * Math.PI * 0.9); // ~right arc
+                        const baseX = cx + Math.cos(angle) * radius;
+                        const baseY = cy + Math.sin(angle) * radius * 0.85;
+                        const stacks = (part.initialStacks || part.stacks || []).filter(s => s.count > 0);
+                        let local = 0;
+                        stacks.forEach((stack, stackIdx) => {
+                            const shipDef = this.ships?.[stack.shipType] || this._syntheticShipStats?.[stack.shipType] || {};
+                            const cls = stack.isSynthetic ? 'Cruiser' : inferClass({ name: stack.shipType, hitPoints: shipDef.hitPoints || shipDef.hull });
+                            const cfg = CLASS_CONFIG[cls] || CLASS_CONFIG.Fighter;
+                            const maxShow = Math.min(Math.max(1, stack.count), team === 'attack'
+                                ? (cls === 'Capitol' ? 2 : cls === 'Battleship' ? 4 : 10)
+                                : 10);
+                            for (let i = 0; i < maxShow; i++) {
+                                const spread = (local % 3) - 1;
+                                const ring = Math.floor(local / 3);
+                                list.push(makeShip({
+                                    x: baseX + (team === 'attack' ? -1 : 1) * ring * (cfg.spacing * 0.7) + spread * 8,
+                                    y: baseY + spread * (cfg.spacing * 0.85),
+                                    hp: shipDef.hitPoints || shipDef.hull || (team === 'attack' ? 50 : 80),
+                                    dmg: shipDef.damage || 20,
+                                    cls,
+                                    side: team === 'attack' ? 'attacker' : 'defender',
+                                    name: stack.shipType,
+                                    label: stack.shipType,
+                                    color: part.color || (team === 'attack' ? '#00d9ff' : '#ff4a4a'),
+                                    image: shipDef.battleSprite || shipDef.image || SHIP_IMAGE_LOOKUP[stack.shipType]?.image || null,
+                                    spriteFacing: shipDef.spriteFacing || SHIP_IMAGE_LOOKUP[stack.shipType]?.facing || 'up',
+                                    isStructure: !!stack.isSynthetic,
+                                    fixed: !!stack.isSynthetic,
+                                }));
+                                const ship = list[list.length - 1];
+                                ship.stackIdx = stackIdx;
+                                ship.ownerId = part.id;
+                                ship.ownerName = part.username;
+                                ship.participantColor = part.color;
+                                local++;
+                            }
+                        });
+                    });
+                };
+
+                if (animParticipants.length) {
+                    placeParticipantStacks(animParticipants.filter(p => p.team === 'attack'), 'attack');
+                    placeParticipantStacks(animParticipants.filter(p => p.team === 'defend'), 'defend');
+                } else {
+                    if (initAtk.length) {
+                        attackerShips.length = 0;
+                        let row = 0, col = 0;
+                        initAtk.forEach((stack, stackIdx) => {
+                            const shipDef = this.ships?.[stack.shipType] || this._syntheticShipStats?.[stack.shipType] || {};
+                            const cls = inferClass({ name: stack.shipType, hitPoints: shipDef.hitPoints || shipDef.hull });
+                            const cfg = CLASS_CONFIG[cls] || CLASS_CONFIG.Fighter;
+                            const maxShow = Math.min(Math.max(1, stack.count), cls === 'Capitol' ? 2 : cls === 'Battleship' ? 4 : 16);
+                            for (let i = 0; i < maxShow; i++) {
+                                attackerShips.push(makeShip({
+                                    x: 30 + col * (cfg.spacing + 6),
+                                    y: H * 0.12 + row * (cfg.spacing + 6),
+                                    hp: shipDef.hitPoints || shipDef.hull || 50,
+                                    dmg: shipDef.damage || 20,
+                                    cls, side: 'attacker', name: stack.shipType, label: stack.shipType,
+                                    image: shipDef.battleSprite || shipDef.image || SHIP_IMAGE_LOOKUP[stack.shipType]?.image || null,
+                                    spriteFacing: shipDef.spriteFacing || SHIP_IMAGE_LOOKUP[stack.shipType]?.facing || 'up',
+                                }));
+                                attackerShips[attackerShips.length - 1].stackIdx = stackIdx;
+                                attackerShips[attackerShips.length - 1].ownerId = stack.ownerId || null;
+                                col++;
+                                if (col >= 4) { col = 0; row++; }
+                            }
+                        });
+                    }
+                    if (initDef.length) {
+                        defenderShips.length = 0;
+                        let row = 0, col = 0;
+                        initDef.forEach((stack, stackIdx) => {
+                            const shipDef = this.ships?.[stack.shipType] || this._syntheticShipStats?.[stack.shipType] || {};
+                            const cls = stack.isSynthetic ? 'Cruiser' : inferClass({ name: stack.shipType, hitPoints: shipDef.hitPoints || shipDef.hull });
+                            const cfg = CLASS_CONFIG[cls] || CLASS_CONFIG.Fighter;
+                            const maxShow = Math.min(Math.max(1, stack.count), 16);
+                            for (let i = 0; i < maxShow; i++) {
+                                defenderShips.push(makeShip({
+                                    x: W - 30 - col * (cfg.spacing + 6),
+                                    y: H * 0.12 + row * (cfg.spacing + 6),
+                                    hp: shipDef.hitPoints || shipDef.hull || 80,
+                                    dmg: shipDef.damage || 40,
+                                    cls, side: 'defender', name: stack.shipType, label: stack.shipType,
+                                    color: '#ff4a4a',
+                                    image: SHIP_IMAGE_LOOKUP[stack.shipType]?.image || null,
+                                    spriteFacing: SHIP_IMAGE_LOOKUP[stack.shipType]?.facing || 'up',
+                                    isStructure: !!stack.isSynthetic,
+                                    fixed: !!stack.isSynthetic,
+                                }));
+                                defenderShips[defenderShips.length - 1].stackIdx = stackIdx;
+                                defenderShips[defenderShips.length - 1].ownerId = stack.ownerId || null;
+                                col++;
+                                if (col >= 4) { col = 0; row++; }
+                            }
+                        });
+                    }
+                }
+
                 const allShips    = [...attackerShips, ...defenderShips];
                 const projectiles = [];
                 const explosions  = [];
@@ -21491,18 +21776,19 @@ const SHIP_IMAGE_DATA = {
                 const laserFlash  = [];
                 let screenShake   = 0;
                 let frame = 0;
-                const MAX_FRAMES  = 1800; // 30s at 60fps
+                const waveEvents = (animOpts.waveLog || []).filter(e => e && e.type === 'wave' && !e.skipped);
+                const FRAMES_PER_WAVE = 100; // ~1.6s per stack face-off
+                const MAX_FRAMES  = waveEvents.length
+                    ? Math.max(240, waveEvents.length * FRAMES_PER_WAVE + 120)
+                    : 1800; // legacy fallback ~30s
                 const killFeed    = []; // { text, color, life }
                 const MAX_FEED    = 5;
+                let animFinished  = false;
+                let currentWaveIdx = -1;
 
-                // Total power ratio determines how fast each side gets whittled down
-                const atkRatio = isVictory ? 0.20 : 0.50; // fraction of attacker ships that die
+                // Total power ratio determines how fast each side gets whittled down (legacy path)
+                const atkRatio = isVictory ? 0.20 : 0.50;
                 const defRatio = isVictory ? 0.95 : 0.30;
-                const atkDeathFrame = (name) => {
-                    const total = attackerShips.filter(s => s.name === name).length;
-                    const die   = Math.ceil(total * atkRatio);
-                    return die;
-                };
 
                 // ── Helpers ──
                 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -21540,12 +21826,27 @@ const SHIP_IMAGE_DATA = {
                     if (s.dead && !s.drifting) return;
                     const dir = s.side === 'attacker' ? 1 : -1;
                     const sz  = s.size || 8;
-                    const alpha = s.drifting ? Math.max(0, 1 - (Math.abs(s.x - s.baseX) + Math.abs(s.y - s.baseY)) / 200) : 1;
+                    let alpha = s.drifting ? Math.max(0, 1 - (Math.abs(s.x - s.baseX) + Math.abs(s.y - s.baseY)) / 200) : 1;
                     if (alpha <= 0) { s.dead = true; s.drifting = false; return; }
+                    // Stack-wave spotlight: dim idle stacks, brighten the face-off pair
+                    if (!s.drifting && waveEvents.length) {
+                        if (s.waveDim) alpha *= 0.28;
+                        else if (s.waveActive) alpha = Math.min(1, alpha * 1.05);
+                    }
 
                     ctx.save();
                     ctx.globalAlpha = alpha;
                     ctx.translate(s.x, s.y);
+                    if (s.waveActive && !s.drifting && waveEvents.length) {
+                        ctx.beginPath();
+                        ctx.arc(0, 0, sz * 2.2, 0, Math.PI * 2);
+                        ctx.strokeStyle = s.side === 'attacker' ? 'rgba(0,217,255,0.55)' : 'rgba(255,74,74,0.55)';
+                        ctx.lineWidth = 2;
+                        ctx.shadowColor = s.side === 'attacker' ? '#00d9ff' : '#ff4a4a';
+                        ctx.shadowBlur = 12;
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                    }
 
                     if (s.isStructure) {
                         // ── Structure: hexagonal platform ──
@@ -21744,14 +22045,109 @@ const SHIP_IMAGE_DATA = {
                     }
                 };
 
-                // Schedule deaths based on outcome
+                // Schedule deaths — prefer exact stack-wave losses when log is present
                 let atkDeaths  = Math.round(attackerShips.length * atkRatio);
                 let defDeaths  = Math.round(defenderShips.length * defRatio);
                 const atkDead  = new Set();
                 const defDead  = new Set();
+                const waveApplied = new Set();
+
+                const killCountForType = (sideShips, shipType, loss, before, ownerId) => {
+                    if (!shipType || loss <= 0 || before <= 0) return 0;
+                    const pool = sideShips.filter(s => s.name === shipType && (!ownerId || s.ownerId === ownerId));
+                    if (!pool.length) return 0;
+                    return Math.min(pool.length, Math.max(loss >= before ? pool.length : 1, Math.round((loss / before) * pool.length)));
+                };
+
+                let activeWaveEv = null;
+
+                const setStackHighlight = (ev) => {
+                    activeWaveEv = ev || null;
+                    const aType = ev && ev.aShipType;
+                    const bType = ev && ev.bShipType;
+                    const aOwner = ev && ev.aOwnerId;
+                    const bOwner = ev && ev.bOwnerId;
+                    attackerShips.forEach(s => {
+                        const typeOk = !!(aType && s.name === aType);
+                        const ownerOk = !aOwner || s.ownerId === aOwner;
+                        s.waveActive = !!(typeOk && ownerOk && !s.dead && !s.drifting);
+                        s.waveDim = !!(ev && !s.waveActive);
+                    });
+                    defenderShips.forEach(s => {
+                        const typeOk = !!(bType && s.name === bType);
+                        const ownerOk = !bOwner || s.ownerId === bOwner;
+                        s.waveActive = !!(typeOk && ownerOk && !s.dead && !s.drifting);
+                        s.waveDim = !!(ev && !s.waveActive);
+                    });
+                };
+
+                const applyWaveLosses = (ev) => {
+                    if (!ev || waveApplied.has(ev)) return;
+                    waveApplied.add(ev);
+                    setStackHighlight(ev);
+                    const banner = document.getElementById('battleWaveBanner');
+                    if (banner) {
+                        if (ev.freePass === 'attacker') {
+                            banner.textContent = `Round ${ev.round} · Wave ${ev.wave}: ${ev.aIcon || ''} ${ev.aBefore}× ${ev.aName || ev.aShipType} — free pass (no defender in slot)`;
+                        } else if (ev.freePass === 'defender') {
+                            banner.textContent = `Round ${ev.round} · Wave ${ev.wave}: ${ev.bIcon || ''} ${ev.bBefore}× ${ev.bName || ev.bShipType} — free pass (no attacker in slot)`;
+                        } else {
+                            banner.textContent = `Round ${ev.round} · Wave ${ev.wave}: ${ev.aIcon || ''} ${ev.aBefore}× ${ev.aName || ev.aShipType}  vs  ${ev.bIcon || ''} ${ev.bBefore}× ${ev.bName || ev.bShipType}`;
+                        }
+                    }
+                    // Free-pass waves: no mutual fire — just spotlight the passing stack
+                    if (ev.freePass) return;
+                    const atkToKill = killCountForType(attackerShips, ev.aShipType, ev.aLoss || 0, ev.aBefore || 0, ev.aOwnerId);
+                    const defToKill = killCountForType(defenderShips, ev.bShipType, ev.bLoss || 0, ev.bBefore || 0, ev.bOwnerId);
+                    let ak = 0, dk = 0;
+                    for (let i = 0; i < attackerShips.length && ak < atkToKill; i++) {
+                        if (atkDead.has(i)) continue;
+                        if (attackerShips[i].name !== ev.aShipType) continue;
+                        if (ev.aOwnerId && attackerShips[i].ownerId !== ev.aOwnerId) continue;
+                        atkDead.add(i);
+                        killShip(attackerShips[i]);
+                        ak++;
+                    }
+                    for (let i = 0; i < defenderShips.length && dk < defToKill; i++) {
+                        if (defDead.has(i)) continue;
+                        if (defenderShips[i].name !== ev.bShipType) continue;
+                        if (ev.bOwnerId && defenderShips[i].ownerId !== ev.bOwnerId) continue;
+                        defDead.add(i);
+                        killShip(defenderShips[i]);
+                        dk++;
+                    }
+                };
 
                 const tickDeaths = () => {
-                    // Spread deaths over the animation duration
+                    if (waveEvents.length) {
+                        const idx = Math.min(waveEvents.length - 1, Math.floor(frame / FRAMES_PER_WAVE));
+                        const midFrame = idx * FRAMES_PER_WAVE + Math.floor(FRAMES_PER_WAVE * 0.4);
+                        if (idx !== currentWaveIdx && idx >= 0) {
+                            currentWaveIdx = idx;
+                            const ev = waveEvents[idx];
+                            setStackHighlight(ev);
+                            const banner = document.getElementById('battleWaveBanner');
+                            if (banner && ev) {
+                                if (ev.freePass === 'attacker') {
+                                    banner.textContent = `Round ${ev.round} · Wave ${ev.wave}: ${ev.aIcon || ''} ${ev.aBefore}× ${ev.aName || ev.aShipType} — free pass (no defender in slot)`;
+                                } else if (ev.freePass === 'defender') {
+                                    banner.textContent = `Round ${ev.round} · Wave ${ev.wave}: ${ev.bIcon || ''} ${ev.bBefore}× ${ev.bName || ev.bShipType} — free pass (no attacker in slot)`;
+                                } else {
+                                    banner.textContent = `Round ${ev.round} · Wave ${ev.wave}: ${ev.aIcon || ''} ${ev.aBefore}× ${ev.aName || ev.aShipType}  vs  ${ev.bIcon || ''} ${ev.bBefore}× ${ev.bName || ev.bShipType}`;
+                                }
+                            }
+                        }
+                        // Apply losses mid-wave so the face-off trades fire first
+                        if (frame >= midFrame && waveEvents[idx] && !waveApplied.has(waveEvents[idx])) {
+                            applyWaveLosses(waveEvents[idx]);
+                        }
+                        // Ensure all waves applied by the end / on skip
+                        if (frame >= MAX_FRAMES - 30) {
+                            waveEvents.forEach(applyWaveLosses);
+                        }
+                        return;
+                    }
+                    // Legacy: spread deaths over the animation duration from outcome ratios
                     const t = frame / MAX_FRAMES;
                     const targetAtkDead = Math.round(t * atkDeaths);
                     const targetDefDead = Math.round(t * defDeaths);
@@ -21796,10 +22192,30 @@ const SHIP_IMAGE_DATA = {
                     });
                 };
 
+                const finishAnimation = () => {
+                    if (animFinished) return;
+                    animFinished = true;
+                    if (waveEvents.length) waveEvents.forEach(applyWaveLosses);
+                    if (pvpRoomId && window.MP) window.MP.leaveRoom();
+                    if (typeof animOpts.onComplete === 'function') {
+                        try { animOpts.onComplete(); } catch (e) { console.error(e); }
+                    }
+                };
+
                 // ── Main render loop ──
                 const loop = () => {
-                    if (frame >= MAX_FRAMES || !document.getElementById('battleSimulation')) {
-                        if (pvpRoomId && window.MP) window.MP.leaveRoom(); // stop broadcasting once the fight/modal ends
+                    if (!document.getElementById('battleSimulation')) {
+                        finishAnimation();
+                        return;
+                    }
+                    if (window._battleSkip) {
+                        window._battleSkip = false;
+                        frame = MAX_FRAMES;
+                        finishAnimation();
+                        return;
+                    }
+                    if (frame >= MAX_FRAMES) {
+                        finishAnimation();
                         return;
                     }
                     frame++;
@@ -21835,11 +22251,24 @@ const SHIP_IMAGE_DATA = {
                     ctx.font = 'bold 10px sans-serif';
                     ctx.textAlign = 'left';
                     ctx.fillStyle = 'rgba(0,217,255,0.5)';
-                    ctx.fillText('YOUR FLEET', 10, 14);
+                    ctx.fillText(animParticipants.length ? 'ATTACK COALITION' : 'YOUR FLEET', 10, 14);
                     ctx.textAlign = 'right';
                     ctx.fillStyle = 'rgba(255,74,74,0.5)';
-                    ctx.fillText('DEFENDERS', W - 10, 14);
+                    ctx.fillText(animParticipants.length ? 'DEFEND COALITION' : 'DEFENDERS', W - 10, 14);
                     ctx.textAlign = 'left';
+                    // Participant name tags near living ships
+                    if (animParticipants.length) {
+                        const tagged = new Set();
+                        allShips.forEach(s => {
+                            if (s.dead || s.drifting || !s.ownerName || tagged.has(s.ownerId)) return;
+                            tagged.add(s.ownerId);
+                            ctx.font = 'bold 9px sans-serif';
+                            ctx.fillStyle = s.participantColor || s.color || '#fff';
+                            ctx.textAlign = 'center';
+                            ctx.fillText(s.ownerName, s.x, s.y - (s.size || 8) - 10);
+                        });
+                        ctx.textAlign = 'left';
+                    }
 
                     // Update deaths
                     tickDeaths();
@@ -21850,14 +22279,22 @@ const SHIP_IMAGE_DATA = {
                         updateDrift(s);
                     });
 
-                    // Fire projectiles every ~40 frames per ship
+                    // Fire projectiles — during stack waves, only the face-off pair trades fire
                     allShips.forEach(s => {
                         if (s.dead || s.drifting) return;
                         s.fireCooldown--;
                         if (s.fireCooldown <= 0) {
                             s.fireCooldown = 25 + Math.floor(Math.random() * 30);
-                            const targets = s.side === 'attacker' ? defenderShips : attackerShips;
-                            fireProjFromTo(s, targets);
+                            if (waveEvents.length && activeWaveEv) {
+                                if (activeWaveEv.freePass) return; // free pass: no exchange
+                                if (!s.waveActive) return;
+                                const opp = s.side === 'attacker' ? defenderShips : attackerShips;
+                                const focused = opp.filter(t => t.waveActive && !t.dead && !t.drifting);
+                                fireProjFromTo(s, focused.length ? focused : opp);
+                            } else {
+                                const targets = s.side === 'attacker' ? defenderShips : attackerShips;
+                                fireProjFromTo(s, targets);
+                            }
                         }
                     });
 
@@ -21986,21 +22423,23 @@ const SHIP_IMAGE_DATA = {
                     });
                     ctx.restore();
 
-                    // Battle phase label (top centre)
-                    const phaseT = frame / MAX_FRAMES;
-                    const phaseLabel = phaseT < 0.15 ? 'OPENING VOLLEY'
-                        : phaseT < 0.75 ? 'ENGAGEMENT'
-                        : phaseT < 0.92 ? 'FINAL PUSH'
-                        : isVictory ? 'VICTORY' : 'DEFEAT';
-                    const phaseColor = phaseT >= 0.92
-                        ? (isVictory ? '#00ff88' : '#ff4444')
-                        : 'rgba(255,255,255,0.3)';
+                    // Battle phase label (top centre) — never spoil outcome until sim completes
+                    let phaseLabel = 'STACK WAVE COMBAT';
+                    let phaseColor = 'rgba(255,215,0,0.55)';
+                    if (waveEvents.length && currentWaveIdx >= 0) {
+                        const ev = waveEvents[currentWaveIdx];
+                        phaseLabel = `R${ev.round}  W${ev.wave}/${waveEvents.length}`;
+                    } else {
+                        const phaseT = frame / MAX_FRAMES;
+                        phaseLabel = phaseT < 0.15 ? 'OPENING VOLLEY'
+                            : phaseT < 0.75 ? 'ENGAGEMENT'
+                            : 'FINAL PUSH';
+                        phaseColor = 'rgba(255,255,255,0.3)';
+                    }
                     ctx.save();
                     ctx.font = `bold ${Math.max(10, Math.min(14, W * 0.016))}px sans-serif`;
                     ctx.textAlign = 'center';
                     ctx.fillStyle = phaseColor;
-                    ctx.shadowColor = phaseColor;
-                    ctx.shadowBlur  = phaseT >= 0.92 ? 14 : 0;
                     ctx.fillText(phaseLabel, W / 2, 14);
                     ctx.restore();
 
@@ -22016,14 +22455,6 @@ const SHIP_IMAGE_DATA = {
                     ctx.textAlign = 'right';
                     ctx.fillText(`${defAlive} ships ⚡`, W - 10, H - 10);
                     ctx.restore();
-
-                    // Final outcome flash at end
-                    if (frame > MAX_FRAMES - 60) {
-                        const t = (frame - (MAX_FRAMES - 60)) / 60;
-                        const col = isVictory ? `rgba(0,255,136,${t * 0.15})` : `rgba(255,74,74,${t * 0.15})`;
-                        ctx.fillStyle = col;
-                        ctx.fillRect(-10, -10, W+20, H+20);
-                    }
 
                     ctx.restore(); // end shake
                     requestAnimationFrame(loop);
@@ -22198,13 +22629,18 @@ const SHIP_IMAGE_DATA = {
             }
 
             _resolveSearchFinds(sourceName, { rolls = 1, ui = 'auto' } = {}) {
+                // During Search All, never open per-item UIs — collector owns the summary
+                if (this._searchAllActive) {
+                    return this._rollSearchFindsOnly(rolls);
+                }
                 const arts = this._rollSearchFindsOnly(rolls);
                 if (!arts.length) {
                     this.showNotification(`❌ Nothing found on ${sourceName}.`);
                     return arts;
                 }
                 const results = arts.map((artifact) => ({ artifact, sourceName }));
-                this._commitSearchResults(results, { ui });
+                const resolvedUi = (ui === 'auto' && results.length > 1) ? 'summary' : ui;
+                this._commitSearchResults(results, { ui: resolvedUi });
                 return arts;
             }
 
@@ -22374,12 +22810,46 @@ const SHIP_IMAGE_DATA = {
                 if (this.updateResources) this.updateResources();
                 else if (this.updateDisplay) this.updateDisplay();
 
+                // UI FIRST — never wait on server grants before showing results
+                // (Search All was appearing broken when grants stalled / queued.)
+                const forceSummary = !!this._searchAllActive || ui === 'summary';
+                const useSummary = forceSummary || (ui === 'auto' && results.length > 1);
+                if (ui !== 'none') {
+                    if (useSummary) {
+                        this._suppressArtifactModals = true;
+                        try {
+                            document.querySelectorAll('[data-artifact-modal="1"]').forEach((el) => el.remove());
+                            this.showSearchResultsSummary(results, {
+                                popLoss,
+                                virusHits,
+                                researchGain,
+                                foodGain,
+                                startPop,
+                            });
+                        } finally {
+                            // Keep suppress briefly so any stray async modal path is ignored
+                            setTimeout(() => { this._suppressArtifactModals = false; }, 500);
+                        }
+                    } else {
+                        const first = results[0];
+                        this.showArtifactModal(first.artifact, first.sourceName);
+                        if (virusHits) {
+                            this.showNotification(`☣️ Virus outbreak! Lost ${popLoss.toLocaleString()} population (-${virusPctTotal}%)`);
+                        } else if (researchGain) {
+                            this.showNotification(`✅ +${researchGain} Research Points!`);
+                        } else if (first.artifact && first.artifact.type === 'crafting') {
+                            const stacked = this.getInventoryCount(first.artifact.id);
+                            this.showNotification(`🔨 ${first.artifact.name} acquired! (×${stacked}) Check Inventory.`);
+                        }
+                    }
+                }
+
                 // Persist once (serialized) — never fire parallel grants that clobber each other
                 const grantResources = {};
                 if (researchGain > 0) grantResources.researchPoints = researchGain;
                 if (foodGain > 0) grantResources.food = foodGain;
 
-                await this._enqueueEconomyOp(async () => {
+                this._enqueueEconomyOp(async () => {
                     if (!(window.MP && window.MP.token)) return;
                     const CHUNK = 80;
                     if (typeof serverEconomyGrant === 'function') {
@@ -22404,33 +22874,11 @@ const SHIP_IMAGE_DATA = {
                         this.renderInventory();
                     }
                 });
-
-                const useSummary = ui === 'summary' || (ui === 'auto' && results.length > 1);
-                if (ui === 'none') return;
-                if (useSummary) {
-                    this.showSearchResultsSummary(results, {
-                        popLoss,
-                        virusHits,
-                        researchGain,
-                        foodGain,
-                        startPop,
-                    });
-                } else {
-                    const first = results[0];
-                    this.showArtifactModal(first.artifact, first.sourceName);
-                    if (virusHits) {
-                        this.showNotification(`☣️ Virus outbreak! Lost ${popLoss.toLocaleString()} population (-${virusPctTotal}%)`);
-                    } else if (researchGain) {
-                        this.showNotification(`✅ +${researchGain} Research Points!`);
-                    } else if (first.artifact.type === 'crafting') {
-                        const stacked = this.getInventoryCount(first.artifact.id);
-                        this.showNotification(`🔨 ${first.artifact.name} acquired! (×${stacked}) Check Inventory.`);
-                    }
-                }
             }
 
             async processArtifactFind(artifact, planetName) {
-                await this._commitSearchResults([{ artifact, sourceName: planetName }], { ui: 'modal' });
+                const ui = this._searchAllActive ? 'summary' : 'modal';
+                await this._commitSearchResults([{ artifact, sourceName: planetName }], { ui });
             }
 
             showSearchResultsSummary(results, stats = {}) {
@@ -22484,7 +22932,7 @@ const SHIP_IMAGE_DATA = {
 
                 const modal = document.createElement('div');
                 modal.id = 'searchResultsSummaryModal';
-                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:22000;display:flex;align-items:center;justify-content:center;padding:20px;';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.94);z-index:40000;display:flex;align-items:center;justify-content:center;padding:20px;';
                 modal.innerHTML = `
                     <div style="width:min(520px,100%);max-height:min(80vh,720px);background:#0d1524;border:2px solid #3d7eff;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 40px rgba(61,126,255,0.35);">
                         <div style="padding:16px 18px;border-bottom:1px solid rgba(139,163,199,0.2);display:flex;align-items:center;justify-content:space-between;gap:12px;">
@@ -22501,15 +22949,25 @@ const SHIP_IMAGE_DATA = {
                         </div>
                     </div>
                 `;
-                const close = () => modal.remove();
+                const close = () => {
+                    modal.remove();
+                    this._suppressArtifactModals = false;
+                };
                 modal.addEventListener('click', (e) => {
-                    if (e.target === modal || e.target?.getAttribute?.('data-close-search-summary') === '1') close();
+                    const t = e.target;
+                    if (t === modal) { close(); return; }
+                    if (t && (t.getAttribute?.('data-close-search-summary') === '1' || t.closest?.('[data-close-search-summary="1"]'))) {
+                        close();
+                    }
                 });
                 document.body.appendChild(modal);
                 this.showNotification(`✨ Search complete — ${totalFinds} find${totalFinds === 1 ? '' : 's'} secured.`);
             }
             
             showArtifactModal(artifact, planetName) {
+                // Search All / batch summary must never open per-item popups
+                if (this._suppressArtifactModals || this._searchAllActive) return;
+                if (!artifact) return;
                 const modal = document.createElement('div');
                 modal.setAttribute('data-artifact-modal', '1');
                 modal.style.cssText = `
@@ -23340,65 +23798,127 @@ const SHIP_IMAGE_DATA = {
                     return;
                 }
                 
-                // Show attack notification
                 this.showNotification(
                     `⚔️ Multi-Fleet Attack Launched!\n` +
-                    `\${attackingFleets.length} fleets, \${totalShips} ships\n` +
-                    `\${Math.floor(totalPower).toLocaleString()} total power\n` +
-                    `Target: \${targetCluster.name}`
+                    `${attackingFleets.length} fleets, ${totalShips} ships\n` +
+                    `${Math.floor(totalPower).toLocaleString()} total power\n` +
+                    `Target: ${targetCluster.name}`
                 );
-                
-                // Calculate defender power
-                const defenderPower = targetCluster.defenseRating || 1000;
-                
-                // Battle calculation
-                const attackRoll = totalPower * (0.8 + Math.random() * 0.4); // 80-120% effectiveness
-                const defenseRoll = defenderPower * (0.8 + Math.random() * 0.4);
-                
-                const victory = attackRoll > defenseRoll;
-                const damageRatio = Math.min(attackRoll / defenseRoll, 2.0);
-                
-                if (victory) {
-                    // Victory! Capture cluster
-                    const oldOwner = targetCluster.owner;
-                    targetCluster.owner = this.username;
-                    targetCluster.defenseRating = Math.floor(defenderPower * 0.3); // Weakened
-                    
-                    // Award XP to all participating fleets
-                    const xpPerFleet = Math.floor(50 * damageRatio);
-                    attackingFleets.forEach(({ fleetIndex }) => {
-                        this.addFleetExperience(fleetIndex, xpPerFleet, '');
-                        const exp = this.fleetExperience[fleetIndex];
-                        exp.battlesWon = (exp.battlesWon || 0) + 1;
+
+                const colors = this._participantColors();
+                const myName = this.username || this.playerData?.username || 'Commander';
+                const participants = attackingFleets.map(({ fleet, fleetIndex }, i) => {
+                    const form = this.getFormationBonus(fleetIndex);
+                    const lvl = this.getFleetLevelBonuses(fleetIndex);
+                    return this._makeCombatParticipant({
+                        id: `fleet_${fleetIndex}_${myName}`,
+                        username: fleet.name || `Fleet ${fleetIndex + 1}`,
+                        team: 'attack',
+                        stacks: this._stacksFromFleet(fleet),
+                        color: colors[i % colors.length],
+                        isSelf: true,
+                        fleetIndex,
+                        dmgMult: (form.damage || 1) * (lvl.damage || 1),
                     });
-                    
-                    this.showNotification(
-                        `🎉 VICTORY! \${targetCluster.name} captured!\n` +
-                        `+\${xpPerFleet} XP per fleet\n` +
-                        `Defeated: \${oldOwner || 'Neutral'}`
-                    );
-                    
-                    // Calculate casualties (10-30% of attacking force)
-                    const casualtyRate = 0.1 + (Math.random() * 0.2) / damageRatio;
-                    this.applyFleetCasualties(attackingFleets, casualtyRate);
-                    
-                } else {
-                    // Defeat
-                    this.showNotification(
-                        `💥 DEFEAT! Attack on \${targetCluster.name} failed!\n` +
-                        `Enemy too strong: \${Math.floor(defenseRoll).toLocaleString()} defense`
-                    );
-                    
-                    // Heavy casualties (30-60%)
-                    const casualtyRate = 0.3 + (Math.random() * 0.3);
-                    this.applyFleetCasualties(attackingFleets, casualtyRate);
-                }
-                
-                this.updateResources();
-                this.renderClusters();
-                this.renderFleetList();
-                this.calculatePlayerPowerRating();
-                this.saveGameState();
+                });
+                participants.push(this._makeCombatParticipant({
+                    id: `npc_cluster_${targetCluster.id || targetCluster.name}`,
+                    username: targetCluster.owner || targetCluster.name,
+                    team: 'defend',
+                    stacks: this._defenderStacksFromCluster(targetCluster),
+                    color: colors[4],
+                    isSelf: false,
+                    isNpc: true,
+                }));
+                const defenderPower = targetCluster.defenseRating || 1000;
+                const roomId = this._combatRoomId('cluster', targetCluster.id || targetCluster.name);
+
+                this.startCoalitionCombat({
+                    title: `Cluster Assault — ${targetCluster.name}`,
+                    attackerName: myName,
+                    defenderName: targetCluster.name,
+                    participants,
+                    interactive: true,
+                    roomId,
+                    isHost: true,
+                    targetKind: 'cluster',
+                    targetId: targetCluster.id || targetCluster.name,
+                    onComplete: (result) => {
+                        // Apply survivors back to each fleet participant
+                        (result.participants || []).forEach(p => {
+                            if (p.team !== 'attack' || p.fleetIndex == null) return;
+                            const fleet = this.fleets[p.fleetIndex];
+                            if (fleet) this._applyStacksToFleet(fleet, p.stacks || []);
+                        });
+
+                        const atkForce = {};
+                        (result.initialAttackerStacks || []).forEach(s => { atkForce[s.shipType] = (atkForce[s.shipType] || 0) + s.count; });
+                        const atkLoss = {};
+                        Object.keys(atkForce).forEach(k => {
+                            const left = (result.attackerStacks || []).filter(s => s.shipType === k).reduce((n, s) => n + s.count, 0);
+                            const lost = Math.max(0, atkForce[k] - left);
+                            if (lost) atkLoss[k] = lost;
+                        });
+                        const defDestroyed = {};
+                        (result.initialDefenderStacks || []).forEach(s => {
+                            const left = (result.defenderStacks || []).filter(x => x.shipType === s.shipType).reduce((n, x) => n + x.count, 0);
+                            const lost = Math.max(0, s.count - left);
+                            if (lost) defDestroyed[s.shipType] = (defDestroyed[s.shipType] || 0) + lost;
+                        });
+
+                        this.showBattleSimulation(
+                            { name: targetCluster.name, owner: targetCluster.owner || 'Neutral', botGarrison: {}, buildings: {} },
+                            atkForce,
+                            totalPower,
+                            defenderPower,
+                            !!result.victory,
+                            {
+                                attackerLosses: atkLoss,
+                                defenderDestroyed: defDestroyed,
+                                retreated: !!result.retreated,
+                                waveLog: result.log || [],
+                                participants: result.participants || [],
+                                initialAttackerStacks: result.initialAttackerStacks || [],
+                                initialDefenderStacks: result.initialDefenderStacks || [],
+                                onAnimationComplete: () => {
+                                    if (result.victory) {
+                                        const oldOwner = targetCluster.owner;
+                                        const claim = result.claimWinner;
+                                        const claimName = claim?.username || myName;
+                                        // Contested claim: top remaining attacker power
+                                        if (!claim || claimName === myName || (result.participants || []).filter(p => p.team === 'attack' && p.isSelf).some(p => p.id === claim?.id || p.username === claimName)) {
+                                            targetCluster.owner = this.username || this.playerData?.username;
+                                        }
+                                        targetCluster.defenseRating = Math.floor(defenderPower * 0.3);
+                                        const xpPerFleet = Math.floor(50 * Math.max(1, result.rounds));
+                                        const assistXp = Math.floor(xpPerFleet * 0.5);
+                                        attackingFleets.forEach(({ fleetIndex }) => {
+                                            const part = (result.participants || []).find(p => p.fleetIndex === fleetIndex);
+                                            const isClaimFleet = claim && part && (part.id === claim.id || part.username === claim.username);
+                                            this.addFleetExperience(fleetIndex, isClaimFleet || !claim ? xpPerFleet : assistXp, '');
+                                            const exp = this.fleetExperience[fleetIndex];
+                                            if (exp && result.victory) exp.battlesWon = (exp.battlesWon || 0) + 1;
+                                        });
+                                        this.showNotification(
+                                            `🎉 VICTORY! ${targetCluster.name} captured by ${claimName}!\n` +
+                                            `XP awarded to participating fleets\n` +
+                                            `Defeated: ${oldOwner || 'Neutral'}`
+                                        );
+                                    } else if (result.retreated) {
+                                        this.showNotification(`🏃 Retreated from ${targetCluster.name}. Survivors recovered.`);
+                                    } else {
+                                        this.showNotification(`💥 DEFEAT! Attack on ${targetCluster.name} failed!`);
+                                    }
+                                    this.updateResources();
+                                    this.renderClusters();
+                                    this.renderFleetList();
+                                    this.calculatePlayerPowerRating();
+                                    this.saveGameState();
+                                },
+                            }
+                        );
+                    },
+                });
             }
             
             applyFleetCasualties(attackingFleets, casualtyRate) {
@@ -23474,6 +23994,913 @@ const SHIP_IMAGE_DATA = {
                 this.launchMultiFleetAttack(selectedIndices, targetClusterIndex);
             }
             
+            // ═══════════════════════════════════════════════════════════
+            // STACK-WAVE COMBAT — ordered stack face-offs, rotate survivors
+            // ═══════════════════════════════════════════════════════════
+
+            _shipCombatStats(shipType) {
+                const ship = this.ships?.[shipType] || null;
+                const special = (typeof this.getSpecialShips === 'function')
+                    ? (this.getSpecialShips() || []).find(s => s && (s.name === shipType || s.name === shipType))
+                    : null;
+                const src = ship || special || {};
+                const hull = Math.max(1, Number(src.hull ?? src.hitPoints ?? 1) || 1);
+                const shield = Math.max(0, Number(src.shield) || 0);
+                const armor = Math.max(0, Number(src.armor) || 0);
+                const damage = Math.max(0, Number(src.damage) || 0);
+                return {
+                    name: src.name || shipType,
+                    icon: src.icon || '🚀',
+                    damage,
+                    hull,
+                    shield,
+                    armor,
+                    hp: Math.max(1, hull + shield + Math.floor(armor * 0.5)),
+                };
+            }
+
+            _cloneCombatStacks(stacks) {
+                return (stacks || [])
+                    .filter(s => s && s.shipType && Number(s.count) > 0)
+                    .slice(0, 10) // per-participant cap
+                    .map((s, i) => ({
+                        shipType: s.shipType,
+                        count: Math.max(0, Math.floor(Number(s.count) || 0)),
+                        experience: Number(s.experience) || 0,
+                        order: i,
+                        label: s.label || s.shipType,
+                        isSynthetic: !!s.isSynthetic,
+                        ownerId: s.ownerId || null,
+                    }));
+            }
+
+            _participantColors() {
+                return ['#00d9ff', '#ff9500', '#a855f7', '#22c55e', '#f43f5e', '#eab308', '#38bdf8', '#fb7185'];
+            }
+
+            _makeCombatParticipant({ id, username, team, stacks, color, isSelf, isNpc, fleetIndex, dmgMult }) {
+                const pid = String(id || username || `p_${Date.now()}`);
+                const cloned = this._cloneCombatStacks(stacks).map(s => ({ ...s, ownerId: pid }));
+                return {
+                    id: pid,
+                    username: username || 'Unknown',
+                    team: team === 'defend' ? 'defend' : 'attack',
+                    stacks: cloned,
+                    initialStacks: this._cloneCombatStacks(cloned).map(s => ({ ...s, ownerId: pid })),
+                    color: color || this._participantColors()[0],
+                    isSelf: !!isSelf,
+                    isNpc: !!isNpc,
+                    fleetIndex: fleetIndex == null ? null : fleetIndex,
+                    dmgMult: Number(dmgMult) || 1,
+                    retreated: false,
+                    joinOrder: 0,
+                };
+            }
+
+            _stackCombatPower(stacks) {
+                return (stacks || []).reduce((sum, s) => {
+                    if (!s || s.count <= 0) return sum;
+                    const st = this._combatStatsForStack(s);
+                    return sum + (st.damage || 0) * s.count;
+                }, 0);
+            }
+
+            _flattenTeamStacks(participants, team) {
+                const out = [];
+                (participants || [])
+                    .filter(p => p && p.team === team && !p.retreated)
+                    .forEach(p => {
+                        (p.stacks || []).filter(s => s.count > 0).forEach(s => {
+                            out.push(s);
+                        });
+                    });
+                return out;
+            }
+
+            _teamShipCount(participants, team) {
+                return this._countShips(this._flattenTeamStacks(participants, team));
+            }
+
+            _combatRoomId(kind, targetId) {
+                const k = kind === 'cluster' ? 'cluster' : 'planet';
+                return `combat:${k}:${targetId}`;
+            }
+
+            _pickClaimWinner(participants) {
+                const attackers = (participants || []).filter(p => p.team === 'attack' && !p.retreated && this._countShips(p.stacks) > 0);
+                if (!attackers.length) return null;
+                attackers.sort((a, b) => this._stackCombatPower(b.stacks) - this._stackCombatPower(a.stacks));
+                return attackers[0];
+            }
+
+            _participantLossMap(participant) {
+                const before = {};
+                const after = {};
+                (participant.initialStacks || []).forEach(s => { before[s.shipType] = (before[s.shipType] || 0) + s.count; });
+                (participant.stacks || []).forEach(s => { after[s.shipType] = (after[s.shipType] || 0) + s.count; });
+                const losses = {};
+                Object.keys(before).forEach(k => {
+                    const lost = Math.max(0, before[k] - (after[k] || 0));
+                    if (lost > 0) losses[k] = lost;
+                });
+                return losses;
+            }
+
+            _stacksFromAttackForce(attackForce) {
+                const out = [];
+                Object.entries(attackForce || {}).forEach(([shipType, count]) => {
+                    const n = Math.max(0, Math.floor(Number(count) || 0));
+                    if (n > 0) out.push({ shipType, count: n, experience: 0 });
+                });
+                return this._cloneCombatStacks(out.slice(0, 10));
+            }
+
+            _stacksFromFleet(fleet) {
+                return this._cloneCombatStacks(fleet?.stacks || []);
+            }
+
+            _defenderStacksFromPlanet(target, defenseScore) {
+                const stacks = [];
+                if (target?.botGarrison && typeof target.botGarrison === 'object') {
+                    Object.entries(target.botGarrison).forEach(([type, data]) => {
+                        const count = Math.max(0, Math.floor(Number(data?.count) || 0));
+                        if (count > 0) {
+                            stacks.push({
+                                shipType: type,
+                                count,
+                                experience: 0,
+                                label: type,
+                            });
+                        }
+                    });
+                }
+                // Planetary batteries absorb leftover building/tier defense as a synthetic stack
+                const garrisonPower = Number(target?.botGarrisonPower) || 0;
+                const batteryPower = Math.max(0, Math.floor(Number(defenseScore) || 0) - garrisonPower);
+                if (batteryPower > 0) {
+                    // ~100 defense ≈ 1 "battery" unit with 100 HP / 50 dmg
+                    const units = Math.max(1, Math.ceil(batteryPower / 100));
+                    stacks.push({
+                        shipType: 'Planetary Batteries',
+                        count: units,
+                        experience: 0,
+                        label: 'Planetary Batteries',
+                        isSynthetic: true,
+                    });
+                    // Ensure synthetic stats exist on a transient map
+                    if (!this._syntheticShipStats) this._syntheticShipStats = {};
+                    this._syntheticShipStats['Planetary Batteries'] = {
+                        name: 'Planetary Batteries',
+                        icon: '🛡️',
+                        damage: 50,
+                        hull: 80,
+                        shield: 40,
+                        armor: 20,
+                        hitPoints: 80,
+                    };
+                }
+                return this._cloneCombatStacks(stacks.slice(0, 10));
+            }
+
+            _defenderStacksFromCluster(cluster) {
+                const rating = Math.max(100, Math.floor(Number(cluster?.defenseRating) || 1000));
+                const units = Math.max(1, Math.ceil(rating / 100));
+                if (!this._syntheticShipStats) this._syntheticShipStats = {};
+                this._syntheticShipStats['Cluster Defense Grid'] = {
+                    name: 'Cluster Defense Grid',
+                    icon: '🌌',
+                    damage: 55,
+                    hull: 90,
+                    shield: 50,
+                    armor: 25,
+                    hitPoints: 90,
+                };
+                return this._cloneCombatStacks([{
+                    shipType: 'Cluster Defense Grid',
+                    count: units,
+                    label: 'Cluster Defense Grid',
+                    isSynthetic: true,
+                }]);
+            }
+
+            _combatStatsForStack(stack) {
+                if (stack?.isSynthetic || (this._syntheticShipStats && this._syntheticShipStats[stack.shipType])) {
+                    const src = this._syntheticShipStats[stack.shipType] || {};
+                    const hull = Math.max(1, Number(src.hull ?? src.hitPoints ?? 1) || 1);
+                    const shield = Math.max(0, Number(src.shield) || 0);
+                    const armor = Math.max(0, Number(src.armor) || 0);
+                    return {
+                        name: src.name || stack.shipType,
+                        icon: src.icon || '🛡️',
+                        damage: Math.max(0, Number(src.damage) || 0),
+                        hull, shield, armor,
+                        hp: Math.max(1, hull + shield + Math.floor(armor * 0.5)),
+                    };
+                }
+                return this._shipCombatStats(stack.shipType);
+            }
+
+            /**
+             * Simultaneous stack duel. Both sides deal damage from starting counts.
+             * Returns { aLoss, bLoss } and mutates stack counts.
+             */
+            _resolveStackFaceOff(aStack, bStack, aDmgMult = 1, bDmgMult = 1) {
+                if ((!aStack || aStack.count <= 0) && (!bStack || bStack.count <= 0)) {
+                    return { aLoss: 0, bLoss: 0, skipped: true };
+                }
+                // Free pass — unpaired stack rotates unchanged
+                if (!aStack || aStack.count <= 0) {
+                    return { aLoss: 0, bLoss: 0, freePass: 'defender' };
+                }
+                if (!bStack || bStack.count <= 0) {
+                    return { aLoss: 0, bLoss: 0, freePass: 'attacker' };
+                }
+                const aStat = this._combatStatsForStack(aStack);
+                const bStat = this._combatStatsForStack(bStack);
+                const aVar = 0.9 + Math.random() * 0.2;
+                const bVar = 0.9 + Math.random() * 0.2;
+                const aDmg = aStat.damage * aStack.count * aDmgMult * aVar;
+                const bDmg = bStat.damage * bStack.count * bDmgMult * bVar;
+                const aLoss = Math.min(aStack.count, Math.floor(bDmg / Math.max(1, aStat.hp)));
+                const bLoss = Math.min(bStack.count, Math.floor(aDmg / Math.max(1, bStat.hp)));
+                aStack.count -= aLoss;
+                bStack.count -= bLoss;
+                return { aLoss, bLoss, aDmg: Math.floor(aDmg), bDmg: Math.floor(bDmg) };
+            }
+
+            _countShips(stacks) {
+                return (stacks || []).reduce((s, st) => s + Math.max(0, Number(st.count) || 0), 0);
+            }
+
+            /**
+             * Thin wrapper — builds two participants and starts coalition combat.
+             */
+            startWaveCombat(opts = {}) {
+                const colors = this._participantColors();
+                const attackerName = opts.attackerName || 'Attacker';
+                const defenderName = opts.defenderName || 'Defender';
+                const participants = [
+                    this._makeCombatParticipant({
+                        id: 'atk_local',
+                        username: attackerName,
+                        team: 'attack',
+                        stacks: opts.attackerStacks,
+                        color: colors[0],
+                        isSelf: true,
+                        dmgMult: opts.aDmgMult,
+                    }),
+                    this._makeCombatParticipant({
+                        id: 'def_local',
+                        username: defenderName,
+                        team: 'defend',
+                        stacks: opts.defenderStacks,
+                        color: colors[4],
+                        isSelf: false,
+                        isNpc: true,
+                        dmgMult: opts.bDmgMult,
+                    }),
+                ];
+                this.startCoalitionCombat({
+                    ...opts,
+                    participants,
+                    attackerName,
+                    defenderName,
+                });
+            }
+
+            /**
+             * Coalition N-participant stack-wave battle (attack team vs defend team).
+             * Mid-fight joiners queue until the next round boundary.
+             */
+            startCoalitionCombat(opts = {}) {
+                if (this._waveCombat?.active) {
+                    this.showNotification('⚠️ A wave battle is already in progress.');
+                    return;
+                }
+                const colors = this._participantColors();
+                let participants = (opts.participants || []).map((p, i) => {
+                    const made = this._makeCombatParticipant({
+                        ...p,
+                        color: p.color || colors[i % colors.length],
+                    });
+                    made.joinOrder = i;
+                    return made;
+                });
+                participants = participants.filter(p => this._countShips(p.stacks) > 0 || p.isNpc);
+                if (!participants.some(p => p.team === 'attack' && this._countShips(p.stacks) > 0)) {
+                    this.showNotification('⚠️ Attacker has no stacks to fight.');
+                    if (typeof opts.onComplete === 'function') {
+                        opts.onComplete(this._emptyCoalitionResult(participants));
+                    }
+                    return;
+                }
+                if (!participants.some(p => p.team === 'defend')) {
+                    // Auto NPC stub so free-for-all targets still resolve
+                    participants.push(this._makeCombatParticipant({
+                        id: 'def_empty',
+                        username: opts.defenderName || 'Defenders',
+                        team: 'defend',
+                        stacks: [],
+                        color: colors[4],
+                        isNpc: true,
+                    }));
+                }
+
+                const atkNames = participants.filter(p => p.team === 'attack').map(p => p.username).join(', ');
+                const defNames = participants.filter(p => p.team === 'defend').map(p => p.username).join(', ');
+
+                this._waveCombat = {
+                    active: true,
+                    mode: 'coalition',
+                    title: opts.title || 'Fleet Engagement',
+                    attackerName: opts.attackerName || atkNames || 'Attackers',
+                    defenderName: opts.defenderName || defNames || 'Defenders',
+                    participants,
+                    pendingJoins: [],
+                    aDmgMult: Number(opts.aDmgMult) || 1,
+                    bDmgMult: Number(opts.bDmgMult) || 1,
+                    interactive: opts.interactive !== false,
+                    skipTextModal: !!opts.skipTextModal,
+                    onComplete: opts.onComplete,
+                    roomId: opts.roomId || null,
+                    isHost: opts.isHost !== false,
+                    targetKind: opts.targetKind || null,
+                    targetId: opts.targetId || null,
+                    round: 1,
+                    wave: 0,
+                    roundAtk: null,
+                    roundDef: null,
+                    log: [],
+                    retreated: false, // local self full-abort (legacy); prefer per-participant
+                    _timer: null,
+                    _mpListeners: [],
+                };
+
+                // Legacy mirrors for callers that still read attackerStacks/defenderStacks
+                this._syncLegacyStackMirrors();
+
+                this._beginWaveCombatRound();
+                if (!this._waveCombat.skipTextModal) this._openWaveCombatModal();
+                if (this._waveCombat.roomId && window.MP) this._attachCoalitionCombatRoom();
+                this._scheduleNextWaveCombatStep(this._waveCombat.skipTextModal ? 50 : 400);
+            }
+
+            _emptyCoalitionResult(participants) {
+                return {
+                    victory: false,
+                    retreated: false,
+                    draw: false,
+                    participants: participants || [],
+                    attackerStacks: this._flattenTeamStacks(participants, 'attack'),
+                    defenderStacks: this._flattenTeamStacks(participants, 'defend'),
+                    initialAttackerStacks: [],
+                    initialDefenderStacks: [],
+                    log: [],
+                    rounds: 0,
+                    claimWinner: null,
+                    victoryTeam: null,
+                };
+            }
+
+            _syncLegacyStackMirrors() {
+                const wc = this._waveCombat;
+                if (!wc) return;
+                wc.attackerStacks = this._flattenTeamStacks(wc.participants, 'attack');
+                wc.defenderStacks = this._flattenTeamStacks(wc.participants, 'defend');
+                if (!wc.initialAttackerStacks) {
+                    wc.initialAttackerStacks = wc.participants
+                        .filter(p => p.team === 'attack')
+                        .flatMap(p => this._cloneCombatStacks(p.initialStacks));
+                }
+                if (!wc.initialDefenderStacks) {
+                    wc.initialDefenderStacks = wc.participants
+                        .filter(p => p.team === 'defend')
+                        .flatMap(p => this._cloneCombatStacks(p.initialStacks));
+                }
+            }
+
+            _beginWaveCombatRound() {
+                const wc = this._waveCombat;
+                if (!wc) return;
+                // Admit queued mid-fight joiners at round boundary
+                if (wc.pendingJoins && wc.pendingJoins.length) {
+                    const colors = this._participantColors();
+                    wc.pendingJoins.forEach((pj) => {
+                        if (wc.participants.some(p => p.id === pj.id)) return;
+                        const made = this._makeCombatParticipant({
+                            ...pj,
+                            color: pj.color || colors[wc.participants.length % colors.length],
+                        });
+                        made.joinOrder = wc.participants.length;
+                        wc.participants.push(made);
+                        wc.log.push({ type: 'info', text: `➕ ${made.username} joins the ${made.team} coalition` });
+                        if (wc.isHost && wc.roomId && window.MP) {
+                            window.MP.sendBattleEvent({
+                                kind: 'engagement_state',
+                                round: wc.round,
+                                participants: this._serializeParticipants(wc.participants),
+                            });
+                        }
+                    });
+                    wc.pendingJoins = [];
+                }
+                wc.participants.forEach(p => {
+                    p.stacks = (p.stacks || []).filter(s => s.count > 0);
+                });
+                wc.roundAtk = this._flattenTeamStacks(wc.participants, 'attack');
+                wc.roundDef = this._flattenTeamStacks(wc.participants, 'defend');
+                this._syncLegacyStackMirrors();
+                wc.wave = 0;
+            }
+
+            _serializeParticipants(participants) {
+                return (participants || []).map(p => ({
+                    id: p.id,
+                    username: p.username,
+                    team: p.team,
+                    stacks: this._cloneCombatStacks(p.stacks),
+                    initialStacks: this._cloneCombatStacks(p.initialStacks),
+                    color: p.color,
+                    isSelf: !!p.isSelf,
+                    isNpc: !!p.isNpc,
+                    retreated: !!p.retreated,
+                    joinOrder: p.joinOrder,
+                    dmgMult: p.dmgMult,
+                }));
+            }
+
+            queueCoalitionJoin(participantOpts) {
+                const wc = this._waveCombat;
+                if (!wc || !wc.active) return false;
+                const colors = this._participantColors();
+                const pending = {
+                    ...participantOpts,
+                    color: participantOpts.color || colors[(wc.participants.length + wc.pendingJoins.length) % colors.length],
+                };
+                if (wc.participants.some(p => p.id === pending.id) || wc.pendingJoins.some(p => p.id === pending.id)) {
+                    return false;
+                }
+                wc.pendingJoins.push(pending);
+                wc.log.push({ type: 'info', text: `⏳ ${pending.username} standing by to join ${pending.team} next round` });
+                this._renderWaveCombatModal();
+                if (wc.isHost && wc.roomId && window.MP) {
+                    window.MP.sendBattleEvent({ kind: 'join_queued', participant: pending });
+                }
+                return true;
+            }
+
+            retreatFromWaveCombat() {
+                const wc = this._waveCombat;
+                if (!wc || !wc.active) return;
+                if (!confirm('Retreat from this engagement? Surviving ships return home.')) return;
+                const self = (wc.participants || []).find(p => p.isSelf && !p.retreated);
+                if (self) {
+                    self.retreated = true;
+                    wc.log.push({ type: 'info', text: `🏃 ${self.username} retreated` });
+                    if (wc.roomId && window.MP) {
+                        window.MP.sendBattleEvent({ kind: 'participant_left', participantId: self.id, reason: 'retreat' });
+                    }
+                    // If entire attack team retreated / empty, end; else continue
+                    const atkLeft = this._teamShipCount(wc.participants, 'attack');
+                    const defLeft = this._teamShipCount(wc.participants, 'defend');
+                    const atkActive = wc.participants.some(p => p.team === 'attack' && !p.retreated && this._countShips(p.stacks) > 0);
+                    if (!atkActive || atkLeft <= 0 || defLeft <= 0) {
+                        wc.retreated = !atkActive;
+                        if (wc._timer) { clearTimeout(wc._timer); wc._timer = null; }
+                        this._finishWaveCombat();
+                        return;
+                    }
+                    this._renderWaveCombatModal();
+                    return;
+                }
+                wc.retreated = true;
+                if (wc._timer) { clearTimeout(wc._timer); wc._timer = null; }
+                this._finishWaveCombat();
+            }
+
+            _scheduleNextWaveCombatStep(delayMs = 900) {
+                const wc = this._waveCombat;
+                if (!wc || !wc.active) return;
+                if (wc._timer) clearTimeout(wc._timer);
+                // Non-host clients wait for host wave_step events
+                if (wc.roomId && wc.isHost === false) return;
+                wc._timer = setTimeout(() => this._advanceWaveCombat(), delayMs);
+            }
+
+            _advanceWaveCombat() {
+                const wc = this._waveCombat;
+                if (!wc || !wc.active) return;
+
+                if (!wc.roundAtk || !wc.roundDef) this._beginWaveCombatRound();
+
+                const livingAtk = this._teamShipCount(wc.participants, 'attack');
+                const livingDef = this._teamShipCount(wc.participants, 'defend');
+                if (!livingAtk || !livingDef) {
+                    this._finishWaveCombat();
+                    return;
+                }
+
+                const waves = Math.max(wc.roundAtk.length, wc.roundDef.length);
+                wc.wave += 1;
+                if (wc.wave > waves) {
+                    wc.round += 1;
+                    if (wc.round > 40) {
+                        wc.log.push({ type: 'info', text: 'Engagement timed out after 40 rounds.' });
+                        this._finishWaveCombat();
+                        return;
+                    }
+                    wc.log.push({ type: 'round', text: `— Round ${wc.round} — survivors rotate · pending joins admitted —` });
+                    this._beginWaveCombatRound();
+                    this._renderWaveCombatModal();
+                    this._scheduleNextWaveCombatStep(700);
+                    return;
+                }
+
+                const aStack = wc.roundAtk[wc.wave - 1] || null;
+                const bStack = wc.roundDef[wc.wave - 1] || null;
+                if ((aStack && aStack.count <= 0) && (bStack && bStack.count <= 0)) {
+                    this._scheduleNextWaveCombatStep(50);
+                    return;
+                }
+                const aBefore = aStack ? aStack.count : 0;
+                const bBefore = bStack ? bStack.count : 0;
+                const aOwner = aStack?.ownerId || null;
+                const bOwner = bStack?.ownerId || null;
+                const aPart = aOwner ? wc.participants.find(p => p.id === aOwner) : null;
+                const bPart = bOwner ? wc.participants.find(p => p.id === bOwner) : null;
+                const aStat = aStack && aBefore > 0 ? this._combatStatsForStack(aStack) : null;
+                const bStat = bStack && bBefore > 0 ? this._combatStatsForStack(bStack) : null;
+                const aMult = (aPart?.dmgMult || 1) * (wc.aDmgMult || 1);
+                const bMult = (bPart?.dmgMult || 1) * (wc.bDmgMult || 1);
+                const result = this._resolveStackFaceOff(
+                    aBefore > 0 ? aStack : null,
+                    bBefore > 0 ? bStack : null,
+                    aMult,
+                    bMult
+                );
+
+                let text;
+                const aTag = aPart ? `[${aPart.username}] ` : '';
+                const bTag = bPart ? `[${bPart.username}] ` : '';
+                if (result.freePass === 'attacker') {
+                    text = `R${wc.round} W${wc.wave}: ${aTag}${aStat.icon} ${aStack.count}× ${aStat.name} — free pass`;
+                } else if (result.freePass === 'defender') {
+                    text = `R${wc.round} W${wc.wave}: ${bTag}${bStat.icon} ${bStack.count}× ${bStat.name} — free pass`;
+                } else if (result.skipped) {
+                    text = `R${wc.round} W${wc.wave}: empty slot`;
+                } else {
+                    text = `R${wc.round} W${wc.wave}: ${aTag}${aStat.icon} ${aBefore}× ${aStat.name} vs ${bTag}${bStat.icon} ${bBefore}× ${bStat.name} → −${result.aLoss} / −${result.bLoss}`;
+                }
+                const waveEv = {
+                    type: 'wave',
+                    text,
+                    round: wc.round,
+                    wave: wc.wave,
+                    aShipType: aBefore > 0 ? aStack.shipType : null,
+                    bShipType: bBefore > 0 ? bStack.shipType : null,
+                    aOwnerId: aOwner,
+                    bOwnerId: bOwner,
+                    aName: aStat ? aStat.name : null,
+                    bName: bStat ? bStat.name : null,
+                    aIcon: aStat ? aStat.icon : null,
+                    bIcon: bStat ? bStat.icon : null,
+                    aBefore,
+                    bBefore,
+                    aLoss: result.aLoss || 0,
+                    bLoss: result.bLoss || 0,
+                    freePass: result.freePass || null,
+                    skipped: !!result.skipped,
+                };
+                wc.log.push(waveEv);
+                this._syncLegacyStackMirrors();
+                this._renderWaveCombatModal();
+                if (wc.isHost && wc.roomId && window.MP) {
+                    window.MP.sendBattleEvent({ kind: 'wave_step', event: waveEv, participants: this._serializeParticipants(wc.participants) });
+                }
+                this._scheduleNextWaveCombatStep(wc.interactive && !wc.skipTextModal ? 1100 : (wc.skipTextModal ? 30 : 200));
+            }
+
+            _finishWaveCombat() {
+                const wc = this._waveCombat;
+                if (!wc) return;
+                if (wc._timer) { clearTimeout(wc._timer); wc._timer = null; }
+                wc.participants.forEach(p => { p.stacks = (p.stacks || []).filter(s => s.count > 0); });
+                this._syncLegacyStackMirrors();
+                const atkLeft = this._teamShipCount(wc.participants, 'attack');
+                const defLeft = this._teamShipCount(wc.participants, 'defend');
+                const self = wc.participants.find(p => p.isSelf);
+                const selfRetreated = !!(self && self.retreated);
+                const victoryTeam = (!selfRetreated || atkLeft > 0) && atkLeft > 0 && defLeft === 0
+                    ? 'attack'
+                    : (atkLeft === 0 && defLeft > 0 ? 'defend' : null);
+                const victory = victoryTeam === 'attack';
+                const draw = !victoryTeam && atkLeft > 0 && defLeft > 0;
+                const claimWinner = victory ? this._pickClaimWinner(wc.participants) : null;
+                const result = {
+                    victory,
+                    victoryTeam,
+                    retreated: selfRetreated && !victory,
+                    draw,
+                    participants: this._serializeParticipants(wc.participants),
+                    attackerStacks: wc.attackerStacks,
+                    defenderStacks: wc.defenderStacks,
+                    initialAttackerStacks: wc.initialAttackerStacks || [],
+                    initialDefenderStacks: wc.initialDefenderStacks || [],
+                    log: wc.log.slice(),
+                    rounds: wc.round,
+                    claimWinner: claimWinner ? { id: claimWinner.id, username: claimWinner.username } : null,
+                };
+                wc.active = false;
+                if (!wc.skipTextModal) {
+                    const status = document.getElementById('waveCombatStatus');
+                    if (status) {
+                        status.innerHTML = result.retreated
+                            ? `<strong style="color:#ffd700;">🏃 Withdrawal ordered</strong> · Opening survivor replay…`
+                            : `<strong style="color:#8ba3c7;">⚔ Engagement resolved</strong> · Opening coalition battle replay…`;
+                    }
+                    const retreatRow = document.getElementById('waveCombatRetreatRow');
+                    if (retreatRow) retreatRow.style.display = 'none';
+                }
+                if (wc.isHost && wc.roomId && window.MP) {
+                    window.MP.sendBattleEvent({ kind: 'engagement_end', result });
+                }
+                this._detachCoalitionCombatRoom();
+                const done = () => {
+                    document.getElementById('waveCombatModal')?.remove();
+                    const cb = wc.onComplete;
+                    this._waveCombat = null;
+                    if (typeof cb === 'function') cb(result);
+                };
+                setTimeout(done, wc.skipTextModal ? 50 : (wc.interactive ? 500 : 200));
+            }
+
+            _openWaveCombatModal() {
+                document.getElementById('waveCombatModal')?.remove();
+                const modal = document.createElement('div');
+                modal.id = 'waveCombatModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:35000;display:flex;align-items:center;justify-content:center;padding:16px;';
+                modal.innerHTML = `
+                    <div style="width:min(720px,100%);max-height:min(86vh,780px);background:#0d1524;border:2px solid #3d7eff;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 0 40px rgba(61,126,255,0.35);">
+                        <div style="padding:14px 16px;border-bottom:1px solid rgba(139,163,199,0.2);display:flex;justify-content:space-between;gap:12px;align-items:center;">
+                            <div>
+                                <div id="waveCombatTitle" style="font-family:Orbitron,sans-serif;font-weight:900;font-size:16px;color:#ffd700;">Fleet Engagement</div>
+                                <div id="waveCombatSub" style="font-size:12px;color:#8ba3c7;margin-top:2px;"></div>
+                            </div>
+                            <div id="waveCombatRetreatRow">
+                                <button type="button" onclick="window.game.retreatFromWaveCombat()"
+                                    style="padding:8px 14px;font-size:12px;font-weight:700;background:rgba(100,100,100,0.2);border:1px solid #888;border-radius:6px;color:#ccc;cursor:pointer;">
+                                    🏃 Retreat
+                                </button>
+                            </div>
+                        </div>
+                        <div id="waveCombatRosters" style="padding:8px 16px;font-size:11px;color:#8ba3c7;border-bottom:1px solid rgba(139,163,199,0.12);display:flex;gap:16px;flex-wrap:wrap;"></div>
+                        <div id="waveCombatStatus" style="padding:10px 16px;font-size:12px;color:#e8f0ff;border-bottom:1px solid rgba(139,163,199,0.12);"></div>
+                        <div id="waveCombatLog" style="flex:1;overflow:auto;padding:10px 14px;font-size:12px;line-height:1.45;color:#c5d4ef;"></div>
+                    </div>`;
+                document.body.appendChild(modal);
+                this._renderWaveCombatModal();
+            }
+
+            _renderWaveCombatModal(finalResult = null) {
+                const wc = this._waveCombat;
+                if (!wc) return;
+                const title = document.getElementById('waveCombatTitle');
+                const sub = document.getElementById('waveCombatSub');
+                const status = document.getElementById('waveCombatStatus');
+                const logEl = document.getElementById('waveCombatLog');
+                const retreatRow = document.getElementById('waveCombatRetreatRow');
+                const rosters = document.getElementById('waveCombatRosters');
+                if (title) title.textContent = wc.title;
+                if (sub) sub.textContent = `${wc.attackerName} vs ${wc.defenderName}`;
+                const aShips = this._teamShipCount(wc.participants, 'attack');
+                const dShips = this._teamShipCount(wc.participants, 'defend');
+                if (rosters) {
+                    const chip = (p) => `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;border:1px solid ${p.color};color:${p.color};">${p.retreated ? '🏃 ' : ''}${p.username} · ${this._countShips(p.stacks)}</span>`;
+                    const atk = wc.participants.filter(p => p.team === 'attack').map(chip).join(' ');
+                    const def = wc.participants.filter(p => p.team === 'defend').map(chip).join(' ');
+                    rosters.innerHTML = `<div><span style="color:#00d9ff;font-weight:700;">ATK</span> ${atk}</div><div><span style="color:#ff4a4a;font-weight:700;">DEF</span> ${def}</div>`;
+                }
+                if (status) {
+                    if (finalResult) {
+                        let outcome = finalResult.retreated ? '🏃 RETREATED' : (finalResult.victory ? '🏆 ATTACK VICTORY' : (finalResult.draw ? '⏸️ STALEMATE' : '🛡️ DEFENSE HOLDS'));
+                        status.innerHTML = `<strong style="color:#ffd700;">${outcome}</strong> · Round ${wc.round} · ATK ${aShips} · DEF ${dShips}`;
+                    } else {
+                        status.textContent = `Round ${wc.round} · Wave ${wc.wave} · ATK ${aShips} ships · DEF ${dShips} ships`;
+                    }
+                }
+                if (retreatRow) retreatRow.style.display = (finalResult || wc.retreated) ? 'none' : 'block';
+                if (logEl) {
+                    logEl.innerHTML = (wc.log || []).slice(-80).map(e => {
+                        const color = e.type === 'round' || e.type === 'info' ? '#ffd700' : '#c5d4ef';
+                        return `<div style="padding:4px 0;border-bottom:1px solid rgba(139,163,199,0.08);color:${color};">${e.text}</div>`;
+                    }).join('') || '<div style="color:#8ba3c7;">Engagement starting…</div>';
+                    logEl.scrollTop = logEl.scrollHeight;
+                }
+            }
+
+            _attachCoalitionCombatRoom() {
+                const wc = this._waveCombat;
+                if (!wc || !window.MP || !wc.roomId) return;
+                this._detachCoalitionCombatRoom();
+                const onBattle = (playerId, username, payload) => {
+                    if (!payload || !this._waveCombat) return;
+                    const kind = payload.kind;
+                    if (kind === 'join_engagement') {
+                        if (!wc.isHost) return;
+                        this.queueCoalitionJoin({
+                            id: payload.participantId || `remote_${playerId}`,
+                            username: payload.username || username,
+                            team: payload.team === 'defend' ? 'defend' : 'attack',
+                            stacks: payload.stacks || [],
+                            isSelf: false,
+                            isNpc: false,
+                            dmgMult: payload.dmgMult || 1,
+                        });
+                    } else if (kind === 'engagement_state' && !wc.isHost) {
+                        if (Array.isArray(payload.participants)) {
+                            wc.participants = payload.participants.map((p, i) => {
+                                const made = this._makeCombatParticipant(p);
+                                made.joinOrder = p.joinOrder != null ? p.joinOrder : i;
+                                made.retreated = !!p.retreated;
+                                made.initialStacks = this._cloneCombatStacks(p.initialStacks || p.stacks);
+                                return made;
+                            });
+                            if (payload.round) wc.round = payload.round;
+                            this._syncLegacyStackMirrors();
+                            this._renderWaveCombatModal();
+                        }
+                    } else if (kind === 'wave_step' && !wc.isHost) {
+                        if (payload.event) wc.log.push(payload.event);
+                        if (Array.isArray(payload.participants)) {
+                            wc.participants = payload.participants.map((p, i) => {
+                                const made = this._makeCombatParticipant(p);
+                                made.joinOrder = p.joinOrder != null ? p.joinOrder : i;
+                                made.retreated = !!p.retreated;
+                                made.initialStacks = this._cloneCombatStacks(p.initialStacks || made.initialStacks);
+                                return made;
+                            });
+                            this._syncLegacyStackMirrors();
+                        }
+                        this._renderWaveCombatModal();
+                    } else if (kind === 'participant_left') {
+                        const p = wc.participants.find(x => x.id === payload.participantId);
+                        if (p) {
+                            p.retreated = true;
+                            wc.log.push({ type: 'info', text: `🏃 ${p.username} left the engagement` });
+                            this._renderWaveCombatModal();
+                        }
+                    } else if (kind === 'engagement_end' && !wc.isHost) {
+                        if (wc._timer) { clearTimeout(wc._timer); wc._timer = null; }
+                        wc.active = false;
+                        const result = payload.result || this._emptyCoalitionResult(wc.participants);
+                        document.getElementById('waveCombatModal')?.remove();
+                        this._detachCoalitionCombatRoom();
+                        const cb = wc.onComplete;
+                        this._waveCombat = null;
+                        if (typeof cb === 'function') cb(result);
+                    } else if (kind === 'host_handoff' && payload.newHostId) {
+                        const myName = this.playerData?.username || this.username;
+                        wc.isHost = (payload.newHostUsername === myName) || (String(payload.newHostId) === String(playerId));
+                        if (wc.isHost) this._scheduleNextWaveCombatStep(200);
+                    }
+                };
+                const onMemberLeft = (playerId) => {
+                    const cur = this._waveCombat;
+                    if (!cur) return;
+                    // Leaving host: promote next non-retreated participant by join order
+                    if (cur.isHost) return;
+                    // Non-hosts: if engagement goes silent, first remaining self can claim host after timeout — skip for v1
+                };
+                window.MP.onBattleEvent(onBattle);
+                window.MP.onMemberLeft(onMemberLeft);
+                wc._mpListeners = [
+                    ['battle_event', onBattle],
+                    ['member_left', onMemberLeft],
+                ];
+                window.MP.connect?.().then?.(() => {
+                    window.MP.joinRoom(wc.roomId, 'combat');
+                    if (wc.isHost) {
+                        window.MP.sendBattleEvent({
+                            kind: 'engagement_state',
+                            round: wc.round,
+                            participants: this._serializeParticipants(wc.participants),
+                        });
+                    }
+                }).catch(() => {});
+                // Best-effort join if already connected
+                try {
+                    if (window.MP.currentRoom !== wc.roomId) window.MP.joinRoom(wc.roomId, 'combat');
+                    if (wc.isHost) {
+                        window.MP.sendBattleEvent({
+                            kind: 'engagement_state',
+                            round: wc.round,
+                            participants: this._serializeParticipants(wc.participants),
+                        });
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            _detachCoalitionCombatRoom() {
+                const wc = this._waveCombat;
+                // Listeners are append-only on MPClient; leave room to stop traffic
+                try {
+                    if (window.MP && wc?.roomId && window.MP.currentRoom === wc.roomId) {
+                        window.MP.leaveRoom();
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            /** Join an in-progress combat room as attacker or defender (live mid-fight). */
+            joinLiveCoalitionCombat({ roomId, team, stacks, dmgMult } = {}) {
+                if (!window.MP || !roomId) {
+                    this.showNotification('⚠️ Multiplayer required to join a live engagement.');
+                    return;
+                }
+                const username = this.playerData?.username || this.username || 'Commander';
+                const participantId = `player_${username}`;
+                const payload = {
+                    kind: 'join_engagement',
+                    participantId,
+                    username,
+                    team: team === 'defend' ? 'defend' : 'attack',
+                    stacks: this._cloneCombatStacks(stacks),
+                    dmgMult: Number(dmgMult) || 1,
+                };
+                if (this._waveCombat?.active && this._waveCombat.roomId === roomId) {
+                    this.queueCoalitionJoin({
+                        id: participantId,
+                        username,
+                        team: payload.team,
+                        stacks: payload.stacks,
+                        isSelf: true,
+                        dmgMult: payload.dmgMult,
+                    });
+                    return;
+                }
+                // Spectator/joiner session: start as non-host client waiting for host waves
+                this.startCoalitionCombat({
+                    title: 'Live Coalition Engagement',
+                    participants: [this._makeCombatParticipant({
+                        id: participantId,
+                        username,
+                        team: payload.team,
+                        stacks: payload.stacks,
+                        isSelf: true,
+                        dmgMult: payload.dmgMult,
+                    })],
+                    interactive: true,
+                    isHost: false,
+                    roomId,
+                    onComplete: (result) => {
+                        this._applySelfCoalitionAftermath(result);
+                    },
+                });
+                try {
+                    window.MP.joinRoom(roomId, 'combat');
+                    window.MP.sendBattleEvent(payload);
+                } catch (e) {
+                    console.warn('[combat] join failed', e);
+                }
+            }
+
+            _applySelfCoalitionAftermath(result) {
+                const self = (result.participants || []).find(p => p.isSelf);
+                if (!self) return;
+                // Hangar/fleet sync is handled by specific callers; generic toast only
+                if (result.victory && self.team === 'attack') {
+                    const claim = result.claimWinner;
+                    if (claim && claim.username === self.username) {
+                        this.showNotification(`🏆 You claimed the objective (${claim.username}).`);
+                    } else {
+                        this.showNotification(`🤝 Attack succeeded — assist credited. Claim: ${claim?.username || 'ally'}`);
+                    }
+                } else if (self.retreated) {
+                    this.showNotification('🏃 You retreated. Survivors recovered.');
+                }
+                this.saveGameState?.();
+            }
+
+            _applyStacksToFleet(fleet, stacks) {
+                if (!fleet) return;
+                fleet.stacks = this._cloneCombatStacks(stacks).map(s => ({
+                    shipType: s.shipType,
+                    count: s.count,
+                    experience: s.experience || 0,
+                }));
+            }
+
+            _syncHangarFromStackDiff(beforeForce, afterStacks) {
+                const after = {};
+                (afterStacks || []).forEach(s => { after[s.shipType] = (after[s.shipType] || 0) + s.count; });
+                Object.entries(beforeForce || {}).forEach(([shipType, beforeCount]) => {
+                    const left = after[shipType] || 0;
+                    const lost = Math.max(0, Math.floor(Number(beforeCount) || 0) - left);
+                    if (lost > 0 && this.ships[shipType]) {
+                        this.ships[shipType].count = Math.max(0, (this.ships[shipType].count || 0) - lost);
+                    }
+                });
+            }
+
             fleetVsFleet(attackerFleetIndex, defenderFleetIndex) {
                 const attacker = this.fleets[attackerFleetIndex];
                 const defender = this.fleets[defenderFleetIndex];
@@ -23487,103 +24914,160 @@ const SHIP_IMAGE_DATA = {
                     this.showNotification('⚠️ Cannot fight with empty fleets');
                     return;
                 }
-                
-                // Calculate attack power
-                let attackPower = 0;
-                let attackShips = 0;
-                attacker.stacks.forEach(stack => {
-                    const shipData = this.ships[stack.shipType];
-                    if (shipData) {
-                        attackPower += shipData.damage * stack.count;
-                        attackShips += stack.count;
-                    }
+
+                const aBonus = this.getFormationBonus(attackerFleetIndex);
+                const dBonus = this.getFormationBonus(defenderFleetIndex);
+                const aLvl = this.getFleetLevelBonuses(attackerFleetIndex);
+                const dLvl = this.getFleetLevelBonuses(defenderFleetIndex);
+                const aDmgMult = (aBonus.damage || 1) * (aLvl.damage || 1);
+                const bDmgMult = (dBonus.damage || 1) * (dLvl.damage || 1);
+
+                const colors = this._participantColors();
+                const participants = [
+                    this._makeCombatParticipant({
+                        id: `fleet_${attackerFleetIndex}_atk`,
+                        username: attacker.name,
+                        team: 'attack',
+                        stacks: this._stacksFromFleet(attacker),
+                        color: colors[0],
+                        isSelf: true,
+                        fleetIndex: attackerFleetIndex,
+                        dmgMult: aDmgMult,
+                    }),
+                    this._makeCombatParticipant({
+                        id: `fleet_${defenderFleetIndex}_def`,
+                        username: defender.name,
+                        team: 'defend',
+                        stacks: this._stacksFromFleet(defender),
+                        color: colors[4],
+                        isSelf: true,
+                        fleetIndex: defenderFleetIndex,
+                        dmgMult: bDmgMult,
+                    }),
+                ];
+
+                this.startCoalitionCombat({
+                    title: 'Fleet vs Fleet',
+                    attackerName: attacker.name,
+                    defenderName: defender.name,
+                    participants,
+                    interactive: true,
+                    onComplete: (result) => {
+                        (result.participants || []).forEach(p => {
+                            if (p.fleetIndex == null) return;
+                            const fleet = this.fleets[p.fleetIndex];
+                            if (fleet) this._applyStacksToFleet(fleet, p.stacks || []);
+                        });
+                        const atkForce = {};
+                        (result.initialAttackerStacks || []).forEach(s => { atkForce[s.shipType] = (atkForce[s.shipType] || 0) + s.count; });
+                        const atkLoss = {};
+                        Object.keys(atkForce).forEach(k => {
+                            const left = (result.attackerStacks || []).filter(s => s.shipType === k).reduce((n, s) => n + s.count, 0);
+                            const lost = Math.max(0, atkForce[k] - left);
+                            if (lost) atkLoss[k] = lost;
+                        });
+                        const defDestroyed = {};
+                        (result.initialDefenderStacks || []).forEach(s => {
+                            const left = (result.defenderStacks || []).filter(x => x.shipType === s.shipType).reduce((n, x) => n + x.count, 0);
+                            const lost = Math.max(0, s.count - left);
+                            if (lost) defDestroyed[s.shipType] = (defDestroyed[s.shipType] || 0) + lost;
+                        });
+                        let atkPower = 0;
+                        Object.entries(atkForce).forEach(([n, c]) => {
+                            const ship = this.ships[n];
+                            if (ship) atkPower += ship.damage * c;
+                        });
+                        this.showBattleSimulation(
+                            { name: defender.name, owner: 'Fleet Duel', botGarrison: {}, buildings: {} },
+                            atkForce,
+                            atkPower,
+                            Math.max(1, this._countShips(result.initialDefenderStacks || [])),
+                            !!result.victory,
+                            {
+                                attackerLosses: atkLoss,
+                                defenderDestroyed: defDestroyed,
+                                retreated: !!result.retreated,
+                                waveLog: result.log || [],
+                                participants: result.participants || [],
+                                initialAttackerStacks: result.initialAttackerStacks || [],
+                                initialDefenderStacks: result.initialDefenderStacks || [],
+                                onAnimationComplete: () => {
+                                    if (result.victory) {
+                                        const xpGain = Math.floor(75 * Math.max(1, result.rounds));
+                                        this.addFleetExperience(attackerFleetIndex, xpGain, '');
+                                        const exp = this.fleetExperience[attackerFleetIndex];
+                                        if (exp) exp.battlesWon = (exp.battlesWon || 0) + 1;
+                                        this.showNotification(`🏆 ${attacker.name} wins the wave battle! (+${xpGain} XP)`);
+                                    } else if (result.retreated) {
+                                        this.showNotification(`🏃 ${attacker.name} retreated. Survivors recovered.`);
+                                    } else if (result.draw) {
+                                        this.showNotification(`⏸️ Stalemate — both fleets still have ships after ${result.rounds} rounds.`);
+                                    } else {
+                                        this.showNotification(`💀 ${attacker.name} was destroyed.`);
+                                    }
+                                    this.renderFleetList();
+                                    this.calculatePlayerPowerRating();
+                                    this.saveGameState();
+                                },
+                            }
+                        );
+                    },
                 });
-                
-                // Calculate defense power (includes hull + shields)
-                let defensePower = 0;
-                let defenseShips = 0;
-                defender.stacks.forEach(stack => {
-                    const shipData = this.ships[stack.shipType];
-                    if (shipData) {
-                        defensePower += (shipData.damage * 0.5 + shipData.hull + shipData.shield) * stack.count;
-                        defenseShips += stack.count;
-                    }
-                });
-                
-                // Apply formation bonuses
-                const attackBonus = this.getFormationBonus(attackerFleetIndex);
-                const defenseBonus = this.getFormationBonus(defenderFleetIndex);
-                
-                attackPower *= attackBonus.damage;
-                defensePower *= defenseBonus.hull;
-                
-                // Apply level bonuses
-                const attackLevelBonus = this.getFleetLevelBonuses(attackerFleetIndex);
-                const defenseLevelBonus = this.getFleetLevelBonuses(defenderFleetIndex);
-                
-                attackPower *= attackLevelBonus.damage;
-                defensePower *= defenseLevelBonus.hull;
-                
-                // Battle with variance
-                const attackRoll = attackPower * (0.8 + Math.random() * 0.4);
-                const defenseRoll = defensePower * (0.8 + Math.random() * 0.4);
-                
-                // Determine winner
-                const attackerWins = attackRoll > defenseRoll;
-                const winner = attackerWins ? attacker : defender;
-                const winnerIndex = attackerWins ? attackerFleetIndex : defenderFleetIndex;
-                const loser = attackerWins ? defender : attacker;
-                const loserIndex = attackerWins ? defenderFleetIndex : attackerFleetIndex;
-                
-                // Calculate damage ratio for casualties
-                const powerRatio = attackerWins ? 
-                    attackRoll / defenseRoll : 
-                    defenseRoll / attackRoll;
-                
-                // Winner casualties (10-25%)
-                const winnerCasualtyRate = 0.1 + (Math.random() * 0.15) / powerRatio;
-                // Loser casualties (40-70%)
-                const loserCasualtyRate = 0.4 + (Math.random() * 0.3);
-                
-                // Apply casualties
-                let winnerLosses = 0;
-                winner.stacks.forEach(stack => {
-                    const losses = Math.floor(stack.count * winnerCasualtyRate);
-                    stack.count -= losses;
-                    winnerLosses += losses;
-                });
-                winner.stacks = winner.stacks.filter(s => s.count > 0);
-                
-                let loserLosses = 0;
-                loser.stacks.forEach(stack => {
-                    const losses = Math.floor(stack.count * loserCasualtyRate);
-                    stack.count -= losses;
-                    loserLosses += losses;
-                });
-                loser.stacks = loser.stacks.filter(s => s.count > 0);
-                
-                // Award XP to winner
-                const xpGain = Math.floor(75 * powerRatio);
-                this.addFleetExperience(winnerIndex, xpGain, '');
-                const exp = this.fleetExperience[winnerIndex];
-                exp.battlesWon = (exp.battlesWon || 0) + 1;
-                exp.enemiesDestroyed = (exp.enemiesDestroyed || 0) + loserLosses;
-                
-                // Show results
-                this.showNotification(
-                    `⚔️ FLEET BATTLE RESULTS\n\n` +
-                    `🏆 Winner: \${winner.name}\n` +
-                    `   Power: \${Math.floor(attackerWins ? attackRoll : defenseRoll).toLocaleString()}\n` +
-                    `   Losses: \${winnerLosses} ships\n` +
-                    `   XP: +\${xpGain}\n\n` +
-                    `💥 Loser: \${loser.name}\n` +
-                    `   Power: \${Math.floor(attackerWins ? defenseRoll : attackRoll).toLocaleString()}\n` +
-                    `   Losses: \${loserLosses} ships`
+            }
+
+            /** Prompt to reinforce an owned/allied planet or cluster currently under live attack. */
+            reinforceLiveTarget(kind, targetId) {
+                const roomId = this._combatRoomId(kind, targetId);
+                const fleets = (this.fleets || [])
+                    .map((f, i) => ({ f, i }))
+                    .filter(x => x.f.stacks && x.f.stacks.length > 0);
+                if (!fleets.length) {
+                    this.showNotification('⚠️ No fleets available to reinforce.');
+                    return;
+                }
+                const pick = prompt(
+                    `Reinforce ${kind} ${targetId} as DEFENDER.\nEnter fleet number:\n` +
+                    fleets.map(({ f, i }) => `${i + 1}. ${f.name}`).join('\n')
                 );
-                
-                this.renderFleetList();
-                this.calculatePlayerPowerRating();
-                this.saveGameState();
+                const idx = Math.floor(Number(pick) - 1);
+                const chosen = this.fleets[idx];
+                if (!chosen) {
+                    this.showNotification('⚠️ Invalid fleet.');
+                    return;
+                }
+                this.joinLiveCoalitionCombat({
+                    roomId,
+                    team: 'defend',
+                    stacks: this._stacksFromFleet(chosen),
+                    dmgMult: 1,
+                });
+            }
+
+            joinLiveAttackOnTarget(kind, targetId) {
+                const roomId = this._combatRoomId(kind, targetId);
+                const fleets = (this.fleets || [])
+                    .map((f, i) => ({ f, i }))
+                    .filter(x => x.f.stacks && x.f.stacks.length > 0);
+                if (!fleets.length) {
+                    this.showNotification('⚠️ No fleets available to join the assault.');
+                    return;
+                }
+                const pick = prompt(
+                    `Join assault on ${kind} ${targetId} as ATTACKER.\nEnter fleet number:\n` +
+                    fleets.map(({ f, i }) => `${i + 1}. ${f.name}`).join('\n')
+                );
+                const idx = Math.floor(Number(pick) - 1);
+                const chosen = this.fleets[idx];
+                if (!chosen) {
+                    this.showNotification('⚠️ Invalid fleet.');
+                    return;
+                }
+                this.joinLiveCoalitionCombat({
+                    roomId,
+                    team: 'attack',
+                    stacks: this._stacksFromFleet(chosen),
+                    dmgMult: 1,
+                });
             }
             
             selectFleetForDuel() {
@@ -23600,14 +25084,14 @@ const SHIP_IMAGE_DATA = {
                             const shipData = this.ships[stack.shipType];
                             if (shipData) power += shipData.damage * stack.count;
                         });
-                        return `\${i + 1}. \${f.name} (Power: \${Math.floor(power).toLocaleString()})`;
+                        return `${i + 1}. ${f.name} (Power: ${Math.floor(power).toLocaleString()})`;
                     })
                     .filter(Boolean)
                     .join('\n');
                 
                 const attacker = prompt(
                     `Fleet vs Fleet Combat\n\n` +
-                    `Select ATTACKER fleet:\n\${fleetList}\n\n` +
+                    `Select ATTACKER fleet:\n${fleetList}\n\n` +
                     `Enter fleet number:`
                 );
                 
@@ -23620,7 +25104,7 @@ const SHIP_IMAGE_DATA = {
                 }
                 
                 const defender = prompt(
-                    `Select DEFENDER fleet:\n\${fleetList}\n\n` +
+                    `Select DEFENDER fleet:\n${fleetList}\n\n` +
                     `Enter fleet number:`
                 );
                 
@@ -27252,16 +28736,19 @@ const SHIP_IMAGE_DATA = {
                         const recipes_all = (typeof CRAFTING_RECIPES !== 'undefined') ? CRAFTING_RECIPES : {};
                         queueList.innerHTML = craftingQueue.map(q => {
                             const r = recipes_all[q.recipeId];
-                            if (!r) return '';
-                            const pct = Math.min(100, ((now - q.startTime) / q.duration) * 100);
-                            const remSec = Math.max(0, Math.ceil((q.duration - (now - q.startTime)) / 1000));
+                            const start = Number(q.startTime) || (Number(q.endsAt) - Number(q.duration));
+                            const dur = Math.max(1, Number(q.duration) || 1);
+                            const pct = Math.min(100, Math.max(0, ((now - start) / dur) * 100));
+                            const remSec = Math.max(0, Math.ceil(((Number(q.endsAt) || (start + dur)) - now) / 1000));
+                            const icon = (r && r.icon) || '⚗️';
+                            const name = (r && r.name) || q.name || q.recipeId;
                             return `<div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:rgba(255,149,0,0.08);border:1px solid rgba(255,149,0,0.2);border-radius:5px;margin-bottom:4px;">
-                                <span>${r.icon}</span>
-                                <span style="font-size:11px;color:#e8f0ff;flex:1;">${r.name}</span>
+                                <span>${icon}</span>
+                                <span style="font-size:11px;color:#e8f0ff;flex:1;">${name}</span>
                                 <div style="width:60px;height:5px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;">
-                                    <div style="width:${pct}%;height:100%;background:#ff9500;"></div>
+                                    <div data-craft-fill="${q.recipeId}" style="width:${pct}%;height:100%;background:#ff9500;"></div>
                                 </div>
-                                <span style="font-size:10px;color:#ff9500;">${remSec}s</span>
+                                <span data-craft-rem="${q.recipeId}" style="font-size:10px;color:#ff9500;">${remSec}s</span>
                             </div>`;
                         }).join('');
                     } else {
@@ -27314,8 +28801,10 @@ const SHIP_IMAGE_DATA = {
                     if (alreadyCrafted) {
                         btn = `<button disabled style="width:100%;padding:7px;margin-top:8px;background:rgba(0,255,136,0.08);border:1px solid #00ff88;border-radius:5px;color:#00ff88;font-size:11px;font-weight:700;">✓ Already Crafted</button>`;
                     } else if (inQueue) {
-                        const pct = Math.min(100, ((Date.now()-inQueue.startTime)/inQueue.duration)*100).toFixed(0);
-                        btn = `<button disabled style="width:100%;padding:7px;margin-top:8px;background:rgba(255,149,0,0.08);border:1px solid #ff9500;border-radius:5px;color:#ff9500;font-size:11px;font-weight:700;">⚙️ Crafting... ${pct}%</button>`;
+                        const start = Number(inQueue.startTime) || (Number(inQueue.endsAt) - Number(inQueue.duration));
+                        const dur = Math.max(1, Number(inQueue.duration) || 1);
+                        const pct = Math.min(100, Math.max(0, ((Date.now() - start) / dur) * 100)).toFixed(0);
+                        btn = `<button data-craft-progress="${rid}" disabled style="width:100%;padding:7px;margin-top:8px;background:rgba(255,149,0,0.08);border:1px solid #ff9500;border-radius:5px;color:#ff9500;font-size:11px;font-weight:700;">⚙️ Crafting... ${pct}%</button>`;
                     } else if (craftable) {
                         btn = `<button onclick="if(window.craftingManager){window.craftingManager.craft('${rid}');setTimeout(()=>window.game.renderInlineCrafting(),700);}"
                             style="width:100%;padding:7px;margin-top:8px;background:${catColor}22;border:1px solid ${catColor};border-radius:5px;color:${catColor};font-size:11px;font-weight:700;cursor:pointer;">
@@ -27911,25 +29400,53 @@ const SHIP_IMAGE_DATA = {
                 this.updateResources();
                 this.showNotification(`🔍 Searching ${searchable} planets & clusters... (30s)`);
 
+                // Block per-item popups for the whole Search All window
+                this._searchAllActive = true;
+                this._suppressArtifactModals = true;
+                if (this._searchAllTimer) {
+                    clearInterval(this._searchAllTimer);
+                    this._searchAllTimer = null;
+                }
+
+                const searchSeconds = 30;
+                const endsAt = Date.now() + searchSeconds * 1000;
                 // Register searches using the same state machine as individual searches
-                searchablePlanets.forEach((planet, i) => {
+                searchablePlanets.forEach((planet) => {
                     this.artifactSearches[planet.id] = {
-                        timeRemaining: 30,
-                        totalTime: 30,
-                        planetName: planet.name
+                        timeRemaining: searchSeconds,
+                        totalTime: searchSeconds,
+                        planetName: planet.name,
+                        batch: true,
+                        endsAt,
                     };
                 });
                 searchableClusters.forEach((cluster) => {
                     this.artifactSearches[`cluster_${cluster.id}`] = {
-                        timeRemaining: 30,
-                        totalTime: 30,
-                        clusterName: cluster.name
+                        timeRemaining: searchSeconds,
+                        totalTime: searchSeconds,
+                        clusterName: cluster.name,
+                        batch: true,
+                        endsAt,
                     };
                 });
                 this.renderOwnedPlanets();
 
-                // Resolve all after 30s into ONE summary (no per-item modal spam)
-                setTimeout(() => {
+                // Tick countdown in UI, then resolve once into a single summary overlay
+                this._searchAllTimer = setInterval(() => {
+                    const now = Date.now();
+                    let anyLeft = false;
+                    Object.keys(this.artifactSearches || {}).forEach((key) => {
+                        const s = this.artifactSearches[key];
+                        if (!s || !s.batch) return;
+                        s.timeRemaining = Math.max(0, Math.ceil(((s.endsAt || endsAt) - now) / 1000));
+                        if (s.timeRemaining > 0) anyLeft = true;
+                    });
+                    this.renderOwnedPlanets();
+                    if (anyLeft && now < endsAt) return;
+
+                    clearInterval(this._searchAllTimer);
+                    this._searchAllTimer = null;
+
                     const batch = [];
                     searchablePlanets.forEach((planet) => {
                         delete this.artifactSearches[planet.id];
@@ -27943,19 +29460,31 @@ const SHIP_IMAGE_DATA = {
                             batch.push({ artifact, sourceName: cluster.name });
                         });
                     });
+
+                    this.renderOwnedPlanets();
+
                     if (!batch.length) {
+                        this._searchAllActive = false;
+                        this._suppressArtifactModals = false;
                         this.showNotification('❌ Search All complete — nothing found.');
                     } else {
-                        this._commitSearchResults(batch, { ui: 'summary' });
+                        // Keep suppress flags through commit so no per-item modal can open
+                        try {
+                            this._commitSearchResults(batch, { ui: 'summary' });
+                        } finally {
+                            this._searchAllActive = false;
+                        }
                     }
-                    this.renderOwnedPlanets();
-                    this.saveGameState();
-                }, 30000);
+                    this.saveGameState({ light: true });
+                }, 250);
             }
 
             // Resolve a planet artifact search — 1 roll, 50% nothing
             _resolveArtifactSearch(planet) {
                 if (!planet) return;
+                const pending = this.artifactSearches[planet.id];
+                // Owned by Search All batch timer — do not resolve individually
+                if (pending && pending.batch) return;
                 delete this.artifactSearches[planet.id];
                 this._resolveSearchFinds(planet.name, { rolls: 1, ui: 'modal' });
             }
@@ -27963,7 +29492,10 @@ const SHIP_IMAGE_DATA = {
             // Resolve a cluster artifact search — 3 rolls, each 50% nothing (summary if multiple)
             _resolveClusterSearch(cluster) {
                 if (!cluster) return;
-                delete this.artifactSearches[`cluster_${cluster.id}`];
+                const key = `cluster_${cluster.id}`;
+                const pending = this.artifactSearches[key];
+                if (pending && pending.batch) return;
+                delete this.artifactSearches[key];
                 this._resolveSearchFinds(cluster.name, { rolls: 3, ui: 'auto' });
             }
 
@@ -29475,25 +31007,31 @@ const SHIP_IMAGE_DATA = {
                 
                 // Check if already unlocked
                 if (this.unlockedShips.includes(shipType)) {
-                    this.showNotification('⚠️ Ship already unlocked!');
-                    return;
+                    return false;
                 }
                 
                 // Add to unlocked ships
                 this.unlockedShips.push(shipType);
                 
-                // Log to chat
-                if (window.chatManager) {
-                    chatManager.addMessage('SYSTEM', `🚀 ${this.currentPlayer?.username || 'A commander'} unlocked the ${shipType} schematic!`, 'system');
-                }
+                // Log to chat (must use window. — bare chatManager throws and can stall craft completion)
+                try {
+                    if (window.chatManager && typeof window.chatManager.addMessage === 'function') {
+                        window.chatManager.addMessage(
+                            'SYSTEM',
+                            `🚀 ${this.currentPlayer?.username || 'A commander'} unlocked the ${shipType} schematic!`,
+                            'system'
+                        );
+                    }
+                } catch (e) {}
                 
-                // Save state
-                this.saveGameState();
+                // Light save — avoid full economy reconcile mid-craft-complete
+                this.saveGameState({ light: true });
                 
                 // Update ship display if it's open
                 if (this.currentFleetTab === 'ships') {
                     this.renderShips();
                 }
+                return true;
             }
             
             getSpecialShips() {
@@ -29512,7 +31050,7 @@ const SHIP_IMAGE_DATA = {
                         metalCost: 10000,
                         he3Cost: 5000,
                         creditCost: 50000,
-                        time: 300, // 5 minutes
+                        time: 90, // was 300s; −70% build time
                         description: 'Legendary cargo freighter with devastating nuclear weapons and incredible durability. Built from ancient schematics.'
                     },
                     Firehawk: {
@@ -29528,7 +31066,7 @@ const SHIP_IMAGE_DATA = {
                         metalCost: 5000,
                         he3Cost: 1500,
                         creditCost: 10000,
-                        time: 35, // 35 seconds
+                        time: 11, // was 35s; −70% build time
                         allRaces: true,
                         description: 'Ancient Space Superiority Fighter of human origin. Swift as flame, stronger than star. An interceptor built for dominance — available to all races who unlock its schematics.'
                     }
@@ -35016,9 +36554,54 @@ window.tutorialManager = (() => {
     window.craftingManager = (() => {
 
         let currentCategory = 'all';
-        let craftingQueue   = [];   // [{ recipeId, startTime, duration }]
+        let craftingQueue   = [];   // [{ recipeId, startTime, duration, endsAt }]
         let craftedRecipes  = {};   // { recipeId: true } — one-time completions
         let queueInterval   = null;
+        let lastQueuePersistAt = 0;
+
+        function parseQueueTs(value) {
+            if (value == null || value === '') return NaN;
+            if (typeof value === 'number' && Number.isFinite(value)) return value;
+            const n = Date.parse(String(value));
+            return Number.isFinite(n) ? n : NaN;
+        }
+
+        /** Normalize queue row so progress/completion never stalls on bad timestamps. */
+        function normalizeQueueItem(q) {
+            if (!q || typeof q !== 'object') return null;
+            const recipe = (typeof CRAFTING_RECIPES !== 'undefined') ? CRAFTING_RECIPES[q.recipeId] : null;
+            let startTime = parseQueueTs(q.startTime) || parseQueueTs(q.startedAt);
+            let duration = Number(q.duration);
+            if (!Number.isFinite(duration) || duration <= 0) {
+                duration = (Number(q.craftTime) || (recipe && recipe.craftTime) || 0) * 1000;
+            }
+            // Accidental seconds stored as ms (e.g. 600 instead of 600000)
+            if (recipe && recipe.craftTime >= 60 && duration > 0 && duration < recipe.craftTime * 100) {
+                duration = recipe.craftTime * 1000;
+            }
+            let endsAt = parseQueueTs(q.endsAt);
+            if (!Number.isFinite(startTime) && Number.isFinite(endsAt) && duration > 0) {
+                startTime = endsAt - duration;
+            }
+            if (!Number.isFinite(endsAt) && Number.isFinite(startTime) && duration > 0) {
+                endsAt = startTime + duration;
+            }
+            if (!Number.isFinite(startTime) || !Number.isFinite(duration) || duration <= 0) {
+                // Unrecoverable — force immediate completion on next tick
+                startTime = Date.now() - 1;
+                duration = 1;
+                endsAt = Date.now() - 1;
+            }
+            return {
+                ...q,
+                startTime,
+                duration,
+                endsAt,
+                result: q.result || (recipe && recipe.result ? JSON.parse(JSON.stringify(recipe.result)) : null),
+                repeatable: q.repeatable != null ? !!q.repeatable : !!(recipe && recipe.repeatable),
+                name: q.name || (recipe && recipe.name) || q.recipeId,
+            };
+        }
 
         // ── Persistence (server via Game.getGameState — not localStorage) ─
         function loadState() {
@@ -35028,22 +36611,27 @@ window.tutorialManager = (() => {
                 if (!raw) return;
                 const s = JSON.parse(raw);
                 if (!Object.keys(craftedRecipes).length) craftedRecipes = s.craftedRecipes || {};
-                if (!craftingQueue.length) craftingQueue = s.craftingQueue || [];
+                if (!craftingQueue.length) {
+                    craftingQueue = (s.craftingQueue || []).map(normalizeQueueItem).filter(Boolean);
+                }
                 localStorage.removeItem(CRAFTING_SAVE_KEY);
             } catch(e) {}
         }
 
-        function saveState() {
+        function saveState(opts) {
             if (window.game) {
                 window.game._craftedRecipes = craftedRecipes;
                 window.game._craftingQueue = craftingQueue;
-                if (typeof window.game.saveGameState === 'function') window.game.saveGameState();
+                if (typeof window.game.saveGameState === 'function') {
+                    // Light saves skip economy reconcile — critical while a long craft ticks
+                    window.game.saveGameState(opts && opts.light ? { light: true } : undefined);
+                }
             }
         }
 
         function hydrateFromGameState(recipes, queue) {
             craftedRecipes = recipes || {};
-            craftingQueue = Array.isArray(queue) ? queue : [];
+            craftingQueue = (Array.isArray(queue) ? queue : []).map(normalizeQueueItem).filter(Boolean);
             if (craftingQueue.length > 0) startQueueTimer();
             try { render(); } catch (e) {}
         }
@@ -35114,9 +36702,12 @@ window.tutorialManager = (() => {
             window.game.updateResources();
         }
 
-        function applyResult(recipe) {
-            const r = recipe.result;
-            if (r.type === 'techBonus') {
+        function applyResult(recipe, queueItem) {
+            if (!recipe || !window.game) return;
+            const r = (queueItem && queueItem.result) || recipe.result;
+            if (!r || !r.type) {
+                window.game.showNotification(`⚗️ Crafted: ${recipe.name || (queueItem && queueItem.name) || 'item'}!`);
+            } else if (r.type === 'techBonus') {
                 // Apply temporary bonus with expiration time
                 if (r.duration) {
                     applyTemporaryBonus(r.stat, r.value, r.duration, recipe.name, r.display);
@@ -35128,26 +36719,26 @@ window.tutorialManager = (() => {
             } else if (r.type === 'multiBonus') {
                 if (r.duration) {
                     // Apply all bonuses as temporary with same expiration
-                    r.bonuses.forEach(b => {
+                    (r.bonuses || []).forEach(b => {
                         applyTemporaryBonus(b.stat, b.value, r.duration, recipe.name, b.display);
                     });
                 } else {
                     // Permanent bonuses (if any old recipes exist)
-                    r.bonuses.forEach(b => {
+                    (r.bonuses || []).forEach(b => {
                         window.game.techBonuses[b.stat] = (window.game.techBonuses[b.stat] || 0) + b.value;
                     });
                 }
-                const labels = r.bonuses.map(b => b.display).join(', ');
+                const labels = (r.bonuses || []).map(b => b.display).join(', ');
                 window.game.showNotification(`💎 LEGENDARY CRAFT: ${recipe.name}! (${labels})`);
             } else if (r.type === 'unlockShip') {
                 // Unlock ship for building
-                if (window.game && r.shipType) {
+                if (r.shipType) {
                     window.game.unlockShip(r.shipType);
                 }
-                window.game.showNotification(`🚀 SHIP UNLOCKED: ${recipe.name}! Now available in Build Ships tab!`);
+                window.game.showNotification(`🚀 SHIP UNLOCKED: ${recipe.name || r.shipType}! Now available in Build Ships tab!`);
             } else if (r.type === 'grantItem') {
                 // Ultimate Weapon: mark armed on server before granting the item
-                if (recipe.isUltimateWeapon && window.game && window.game.ultimateCraftId && window.MP && window.MP.token) {
+                if (recipe.isUltimateWeapon && window.game.ultimateCraftId && window.MP && window.MP.token) {
                     window.MP.completeUltimateCraft(window.game.ultimateCraftId).then(() => {
                         window.game.showNotification('☠️ Ultimate Weapon ARMED. Fire it from Inventory to Destroy the Galaxy.');
                     }).catch((e) => {
@@ -35155,7 +36746,7 @@ window.tutorialManager = (() => {
                     });
                 }
                 // Grant an artifact item directly into inventory
-                if (window.game && r.artifactId && ARTIFACTS[r.artifactId]) {
+                if (r.artifactId && ARTIFACTS[r.artifactId]) {
                     if (typeof window.game.addInventoryItem === 'function') {
                         window.game.addInventoryItem({
                             artifactId: r.artifactId,
@@ -35173,13 +36764,15 @@ window.tutorialManager = (() => {
                         });
                     }
                     window.game.renderInventory && window.game.renderInventory();
-                    window.game.saveGameState && window.game.saveGameState();
+                    window.game.saveGameState && window.game.saveGameState({ light: true });
                     window.game.showNotification(`🌀 Crafted: ${ARTIFACTS[r.artifactId].icon} ${ARTIFACTS[r.artifactId].name}! Check your inventory.`);
                 }
             }
             // Mark as crafted if non-repeatable
-            if (!recipe.repeatable) {
-                craftedRecipes[recipe.id] = true;
+            const rid = recipe.id || (queueItem && queueItem.recipeId);
+            const repeatable = recipe.repeatable != null ? recipe.repeatable : (queueItem && queueItem.repeatable);
+            if (rid && !repeatable) {
+                craftedRecipes[rid] = true;
             }
             saveState();
             updateBadge();
@@ -35343,8 +36936,8 @@ window.tutorialManager = (() => {
             // Consume materials immediately, begin timer (snapshot result so server can finish offline)
             await consumeIngredients(recipe);
             const craftStart = Date.now();
-            const craftDuration = (Number(recipe.craftTime) || 0) * 1000;
-            craftingQueue.push({
+            const craftDuration = Math.max(1000, (Number(recipe.craftTime) || 0) * 1000);
+            const queued = normalizeQueueItem({
                 recipeId,
                 name: recipe.name,
                 startTime: craftStart,
@@ -35353,6 +36946,7 @@ window.tutorialManager = (() => {
                 repeatable: !!recipe.repeatable,
                 result: recipe.result ? JSON.parse(JSON.stringify(recipe.result)) : null,
             });
+            if (queued) craftingQueue.push(queued);
             saveState();
             startQueueTimer();
             window.game.showNotification(`⚗️ Crafting ${recipe.name}... (${recipe.craftTime}s)`);
@@ -35365,24 +36959,72 @@ window.tutorialManager = (() => {
             queueInterval = setInterval(() => {
                 const now = Date.now();
                 let changed = false;
-                craftingQueue = craftingQueue.filter(q => {
-                    const elapsed = now - q.startTime;
-                    if (elapsed >= q.duration) {
-                        applyResult(CRAFTING_RECIPES[q.recipeId]);
+                craftingQueue = craftingQueue.map(normalizeQueueItem).filter(Boolean).filter(q => {
+                    const endsAt = Number(q.endsAt) || (Number(q.startTime) + Number(q.duration));
+                    if (Number.isFinite(endsAt) && now >= endsAt) {
+                        try {
+                            const recipe = CRAFTING_RECIPES[q.recipeId] || {
+                                id: q.recipeId,
+                                name: q.name || q.recipeId,
+                                repeatable: q.repeatable,
+                                result: q.result,
+                            };
+                            applyResult(recipe, q);
+                        } catch (e) {
+                            console.error('[craft] completion failed', q.recipeId, e);
+                            try {
+                                if (window.game) {
+                                    window.game.showNotification(`⚠️ Craft finished with errors: ${q.name || q.recipeId}`);
+                                }
+                            } catch (_) {}
+                        }
                         changed = true;
-                        return false;
+                        return false; // always drop completed row — never stall the queue
                     }
                     return true;
                 });
-                if (changed || craftingQueue.length > 0) {
+                if (changed) {
                     renderQueue();
+                    updateInlineCraftProgress();
                     saveState();
+                    lastQueuePersistAt = now;
+                } else if (craftingQueue.length > 0) {
+                    // UI only — do NOT full-save every second (was freezing long crafts ~midway)
+                    renderQueue();
+                    updateInlineCraftProgress();
+                    if (now - lastQueuePersistAt > 30000) {
+                        lastQueuePersistAt = now;
+                        saveState({ light: true });
+                    } else if (window.game) {
+                        window.game._craftingQueue = craftingQueue;
+                    }
                 }
                 if (craftingQueue.length === 0) {
                     clearInterval(queueInterval);
                     queueInterval = null;
                 }
             }, 1000);
+        }
+
+        function updateInlineCraftProgress() {
+            try {
+                const now = Date.now();
+                craftingQueue.forEach((q) => {
+                    const start = Number(q.startTime) || (Number(q.endsAt) - Number(q.duration));
+                    const dur = Math.max(1, Number(q.duration) || 1);
+                    const pct = Math.min(100, Math.max(0, ((now - start) / dur) * 100)).toFixed(0);
+                    const remSec = Math.max(0, Math.ceil((Number(q.endsAt) || (start + dur) - now) / 1000));
+                    document.querySelectorAll(`[data-craft-progress="${q.recipeId}"]`).forEach((el) => {
+                        el.textContent = `⚙️ Crafting... ${pct}%`;
+                    });
+                    document.querySelectorAll(`[data-craft-rem="${q.recipeId}"]`).forEach((el) => {
+                        el.textContent = `${remSec}s`;
+                    });
+                    document.querySelectorAll(`[data-craft-fill="${q.recipeId}"]`).forEach((el) => {
+                        el.style.width = `${pct}%`;
+                    });
+                });
+            } catch (e) {}
         }
 
         // ── Badge ────────────────────────────────────────────────────────
@@ -35458,9 +37100,10 @@ window.tutorialManager = (() => {
                 if (alreadyCrafted) {
                     btn = `<button class="crafting-btn crafted-btn" disabled>✓ Crafted</button>`;
                 } else if (inQueue) {
-                    const elapsed = Date.now() - inQueue.startTime;
-                    const pct     = Math.min(100, (elapsed / inQueue.duration) * 100).toFixed(0);
-                    btn = `<button class="crafting-btn crafting-btn-active" disabled>⚙️ Crafting... ${pct}%</button>`;
+                    const start = Number(inQueue.startTime) || (Number(inQueue.endsAt) - Number(inQueue.duration));
+                    const dur = Math.max(1, Number(inQueue.duration) || 1);
+                    const pct = Math.min(100, Math.max(0, ((Date.now() - start) / dur) * 100)).toFixed(0);
+                    btn = `<button data-craft-progress="${rid}" class="crafting-btn crafting-btn-active" disabled>⚙️ Crafting... ${pct}%</button>`;
                 } else if (craftable) {
                     btn = `<button class="crafting-btn ready" onclick="window.craftingManager.craft('${rid}')">⚗️ Craft Now</button>`;
                 } else {
@@ -35527,16 +37170,20 @@ window.tutorialManager = (() => {
             const now = Date.now();
             list.innerHTML = craftingQueue.map(q => {
                 const recipe  = CRAFTING_RECIPES[q.recipeId];
-                const elapsed = now - q.startTime;
-                const pct     = Math.min(100, (elapsed / q.duration) * 100);
-                const remSec  = Math.max(0, Math.ceil((q.duration - elapsed) / 1000));
+                const start   = Number(q.startTime) || (Number(q.endsAt) - Number(q.duration));
+                const dur     = Math.max(1, Number(q.duration) || 1);
+                const elapsed = now - start;
+                const pct     = Math.min(100, Math.max(0, (elapsed / dur) * 100));
+                const remSec  = Math.max(0, Math.ceil(((Number(q.endsAt) || (start + dur)) - now) / 1000));
+                const icon    = (recipe && recipe.icon) || '⚗️';
+                const name    = (recipe && recipe.name) || q.name || q.recipeId;
                 return `<div class="crafting-queue-item">
-                    <span style="font-size:20px;">${recipe.icon}</span>
-                    <span style="font-size:13px;font-weight:700;color:#e8f0ff;flex:0 0 180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${recipe.name}</span>
+                    <span style="font-size:20px;">${icon}</span>
+                    <span style="font-size:13px;font-weight:700;color:#e8f0ff;flex:0 0 180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
                     <div class="crafting-queue-progress">
-                        <div class="crafting-queue-fill" style="width:${pct}%"></div>
+                        <div class="crafting-queue-fill" data-craft-fill="${q.recipeId}" style="width:${pct}%"></div>
                     </div>
-                    <span style="font-size:11px;color:#ff9500;font-family:'Orbitron',sans-serif;min-width:40px;text-align:right;">${remSec}s</span>
+                    <span data-craft-rem="${q.recipeId}" style="font-size:11px;color:#ff9500;font-family:'Orbitron',sans-serif;min-width:40px;text-align:right;">${remSec}s</span>
                 </div>`;
             }).join('');
         }

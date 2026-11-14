@@ -22,6 +22,11 @@
  *     mp.joinRoom('boss:' + bossInstanceId, 'boss');
  *     mp.onShipState((fromPlayerId, fromUsername, payload) => { ... render their ships ... });
  *     mp.sendShipState({ ships: myShipPositions });    // call this every animation tick
+ *
+ *     // Coalition N-way combat rooms (host resolves; others render):
+ *     mp.joinRoom('combat:planet:' + planetId, 'combat');
+ *     mp.sendBattleEvent({ kind: 'join_engagement', team: 'attack'|'defend', stacks, username, participantId });
+ *     mp.onBattleEvent((playerId, username, payload) => { /* wave_step / engagement_end / … */ });
  *   </script>
  */
 class MPClient {

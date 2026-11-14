@@ -1,0 +1,73 @@
+# Backup Heroku Postgres → GitHub Actions artifact
+#
+# Required repo secrets:
+#   DATABASE_URL          — Heroku Postgres connection string
+#
+# Optional:
+#   HEROKU_APP_NAME       — used only in the artifact name / summary
+#
+# Runs daily and on manual dispatch. Keeps the last 14 artifacts.
+
+name: Backup Postgres
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Optional note for this backup"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  backup:
+    name: pg_dump → artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Verify DATABASE_URL secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Missing secret DATABASE_URL. Add the Heroku Postgres URL under repo Settings → Secrets."
+            exit 1
+          fi
+
+      - name: Dump database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+          NOTE: ${{ inputs.note }}
+        run: bash scripts/backup-postgres.sh
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_ARTIFACT_NAME }}
+          path: backups/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Summary
+        run: |
+          {
+            echo "### Postgres backup complete"
+            echo ""
+            echo "- Artifact: \`${{ env.BACKUP_ARTIFACT_NAME }}\`"
+            echo "- Retention: 14 days"
+            echo "- Restore with workflow **Restore Postgres from Backup**"
+          } >> "$GITHUB_STEP_SUMMARY"
