@@ -26,7 +26,18 @@ app.set('trust proxy', 1);
 
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
 app.use(cors({
-    origin: allowedOrigins.length ? allowedOrigins : true, // allow all if unset (dev convenience — set this in production)
+    origin(origin, callback) {
+        // Non-browser / same-origin requests have no Origin header
+        if (!origin) return callback(null, true);
+        // Dev convenience when ALLOWED_ORIGINS is unset
+        if (!allowedOrigins.length) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        // Netlify production + deploy previews for the fu-v25 site
+        if (/^https:\/\/([a-z0-9-]+--)?fu-v25\.netlify\.app$/i.test(origin)) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    },
     credentials: true,
 }));
 app.use(express.json({ limit: '3mb' }));
