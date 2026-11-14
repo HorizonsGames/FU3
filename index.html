@@ -6953,10 +6953,12 @@
             
             <!-- Players Tab -->
             <div id="adminContentPlayers" class="admin-tab-content">
-                <div style="margin-bottom: 16px;">
+                <div style="margin-bottom: 16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                     <input type="text" id="playerSearchInput" placeholder="Search players..." 
                            onkeyup="filterPlayerList()" 
-                           style="width: 100%; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary);">
+                           style="flex:1; min-width:200px; padding: 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary);">
+                    <button type="button" class="btn" onclick="loadPlayerList()" style="padding:10px 14px;font-size:12px;">↻ Refresh</button>
+                    <div id="adminPlayerListMeta" style="font-size:12px;color:var(--text-secondary);"></div>
                 </div>
                 
                 <div style="background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; max-height: 500px; overflow-y: auto;">
@@ -7004,18 +7006,22 @@
             
             <!-- Server Stats Tab -->
             <div id="adminContentServer" class="admin-tab-content" style="display: none;">
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap;">
+                    <div style="font-size:12px;color:var(--text-secondary);" id="adminServerStatsStatus">Loading server stats…</div>
+                    <button type="button" class="btn" onclick="loadServerStats()" style="font-size:12px;padding:6px 12px;">↻ Refresh</button>
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px;">
                     <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color);">
                         <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Total Players</div>
                         <div style="font-size: 32px; font-weight: 900; color: var(--accent-primary);" id="statTotalPlayers">0</div>
                     </div>
                     <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Active (24h)</div>
-                        <div style="font-size: 32px; font-weight: 900; color: var(--accent-secondary);" id="statActivePlayers">0</div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Online Now</div>
+                        <div style="font-size: 32px; font-weight: 900; color: #00ff88;" id="statOnlineNow">0</div>
                     </div>
                     <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color);">
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">AI Bots</div>
-                        <div style="font-size: 32px; font-weight: 900; color: var(--accent-warning);" id="statAIBots">150</div>
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Active (24h)</div>
+                        <div style="font-size: 32px; font-weight: 900; color: var(--accent-secondary);" id="statActivePlayers">0</div>
                     </div>
                     <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 8px; border: 1px solid var(--border-color);">
                         <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">Total Planets</div>
@@ -13348,12 +13354,12 @@ const SHIP_IMAGE_DATA = {
                 // Determine account type. Was previously "default every new account
                 // to Admin for testing" — fixed, since that silently made the Viral
                 // Race's admin-only lock meaningless (every registrant could unlock
-                // it). Only the explicit 'mister' account gets Admin now.
+                // it). Only explicit allowlisted accounts get Admin now.
+                const ADMIN_USERNAMES = ['mister', 'desporo'];
                 let accountType = 'Player';
-                if (username.toLowerCase() === 'mister') {
+                if (ADMIN_USERNAMES.includes(username.toLowerCase())) {
                     accountType = 'Admin';
                 }
-                // Additional privileged accounts can be added here
                 
                 const playerData = {
                     username: username,
@@ -14892,9 +14898,11 @@ const SHIP_IMAGE_DATA = {
                     const accountTypeBadge = document.getElementById('accountTypeBadge');
                     const adminPanelOption = document.getElementById('adminPanelOption');
                     
-                    const isMisterAdmin = (playerData.username || '').toLowerCase() === 'mister';
-                    if (isMisterAdmin) {
-                        accountTypeBadge.textContent = accountType === 'Player' ? 'Admin' : accountType;
+                    const ADMIN_USERNAMES = ['mister', 'desporo'];
+                    const isAllowlistedAdmin = ADMIN_USERNAMES.includes((playerData.username || '').toLowerCase());
+                    if (isAllowlistedAdmin) {
+                        playerData.accountType = 'Admin';
+                        accountTypeBadge.textContent = 'Admin';
                         accountTypeBadge.style.display = 'inline-block';
                         adminPanelOption.style.display = 'flex';
                     } else if (accountType === 'CSR' || accountType === 'Benefactor') {
@@ -21252,6 +21260,9 @@ const SHIP_IMAGE_DATA = {
                 const retreated         = !!report.retreated;
                 const participants      = Array.isArray(report.participants) ? report.participants : [];
 
+                // Prevent a leftover Skip click from blanking the next battle canvas
+                window._battleSkip = false;
+
                 const modal = document.createElement('div');
                 modal.id = 'battleSimulation';
                 modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.97);z-index:10002;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;padding:40px 20px;`;
@@ -21332,7 +21343,7 @@ const SHIP_IMAGE_DATA = {
                     </div>` : '';
 
                 modal.innerHTML = `<div style="width:90%;max-width:900px;text-align:center;position:relative;">
-                    <button onclick="window._battleSkip=true;document.getElementById('battleSimulation').remove();clearInterval(window.battleTimerInterval);"
+                    <button onclick="window._battleSkip=false;clearInterval(window.battleTimerInterval);document.getElementById('battleSimulation')?.remove();"
                         style="position:absolute;top:-30px;right:0;width:50px;height:50px;background:#ff3366;border:2px solid #ff4a4a;border-radius:50%;color:white;font-size:24px;cursor:pointer;font-weight:900;z-index:10003;">\u2716</button>
                     <div id="battleOutcomeLabel" style="font-size:28px;font-weight:900;margin-bottom:12px;color:#8ba3c7;font-family:'Orbitron',sans-serif;">⚔ ENGAGEMENT IN PROGRESS</div>
                     <div id="battleWaveBanner" style="font-size:13px;color:#ffd700;margin-bottom:10px;min-height:18px;font-weight:700;"></div>
@@ -21413,6 +21424,7 @@ const SHIP_IMAGE_DATA = {
                 document.body.appendChild(modal);
 
                 const revealOutcome = () => {
+                    window._battleSkip = false;
                     const label = document.getElementById('battleOutcomeLabel');
                     if (label) {
                         label.textContent = outcomeLabel;
@@ -21424,11 +21436,18 @@ const SHIP_IMAGE_DATA = {
                     if (viz) viz.style.borderColor = outcomeColor;
                     const aar = document.getElementById('battleAAR');
                     if (aar) aar.style.display = 'block';
+                    const skipBtn = document.getElementById('battleSkipBtn');
+                    if (skipBtn) {
+                        skipBtn.disabled = true;
+                        skipBtn.style.opacity = '0.4';
+                        skipBtn.onclick = null;
+                    }
                     const closeBtn = document.getElementById('battleCloseBtn');
                     if (closeBtn) {
                         closeBtn.disabled = false;
                         closeBtn.style.cssText = 'padding:12px 28px;background:linear-gradient(135deg,#ff3366,#ff4a4a);border:2px solid #ff6688;border-radius:8px;color:white;font-weight:700;cursor:pointer;font-size:14px;text-transform:uppercase;';
                         closeBtn.onclick = () => {
+                            window._battleSkip = false;
                             document.getElementById('battleSimulation')?.remove();
                             clearInterval(window.battleTimerInterval);
                         };
@@ -21465,15 +21484,29 @@ const SHIP_IMAGE_DATA = {
                 const viz = document.getElementById('battleVisualization');
                 if (!viz) return;
 
+                // Stale skip from a prior Skip/X click (after anim already ended) must not
+                // instantly finish the next fight with a blank canvas.
+                window._battleSkip = false;
+
                 // ── Build canvas inside the viz div ──
                 const canvas = document.createElement('canvas');
-                canvas.width  = viz.clientWidth  || 860;
-                canvas.height = viz.clientHeight || 300;
+                // Defer size read one frame so the modal has laid out (avoids 0×0 bitmaps)
+                const sized = () => {
+                    const w = Math.max(320, viz.clientWidth || 860);
+                    const h = Math.max(220, viz.clientHeight || 420);
+                    canvas.width = w;
+                    canvas.height = h;
+                    return { W: w, H: h };
+                };
+                let { W, H } = sized();
                 canvas.style.cssText = 'width:100%;height:100%;display:block;';
                 viz.innerHTML = '';
                 viz.appendChild(canvas);
                 const ctx = canvas.getContext('2d');
-                const W = canvas.width, H = canvas.height;
+                // Re-measure after append if layout was still settling
+                if (W < 400 || H < 200) {
+                    ({ W, H } = sized());
+                }
 
                 // Live PvP broadcast — join a room keyed by the attacker's own username so
                 // anyone spectating (see spectatePvPBattle) can find this fight. Best-effort:
@@ -21566,11 +21599,15 @@ const SHIP_IMAGE_DATA = {
                 const attackerShips = [];
                 let atkRow = 0, atkCol = 0, atkMaxCol = 4;
                 Object.entries(attackForce || {}).forEach(([name, count]) => {
+                    if (attackerShips.length >= 48) return;
                     const shipDef  = this.ships?.[name] || {};
                     const cls      = inferClass(shipDef);
                     const cfg      = CLASS_CONFIG[cls] || CLASS_CONFIG.Fighter;
                     const projDef  = DAMAGE_PROJ[shipDef.damageType] || DAMAGE_PROJ.default;
-                    const maxShow  = cls === 'Capitol' ? 2 : cls === 'Battleship' ? 4 : Math.min(count, 20);
+                    const maxShow  = Math.min(
+                        cls === 'Capitol' ? 2 : cls === 'Battleship' ? 4 : Math.min(count, 8),
+                        48 - attackerShips.length
+                    );
                     for (let i = 0; i < maxShow; i++) {
                         attackerShips.push(makeShip({
                             x: 30 + atkCol * (cfg.spacing + 6),
@@ -21658,6 +21695,10 @@ const SHIP_IMAGE_DATA = {
                 const initAtk = Array.isArray(animOpts.initialAttackerStacks) ? animOpts.initialAttackerStacks : [];
                 const initDef = Array.isArray(animOpts.initialDefenderStacks) ? animOpts.initialDefenderStacks : [];
 
+                // Hard cap visual sprites so huge fleets (1000+) still animate smoothly
+                const VISUAL_CAP_PER_SIDE = 48;
+                const VISUAL_CAP_PER_STACK = 6;
+
                 const placeParticipantStacks = (partList, team) => {
                     const list = team === 'attack' ? attackerShips : defenderShips;
                     list.length = 0;
@@ -21665,22 +21706,28 @@ const SHIP_IMAGE_DATA = {
                     const cx = W * 0.5, cy = H * 0.5;
                     const radius = Math.min(W, H) * 0.34;
                     partList.forEach((part, pi) => {
-                        // Attack: left hemisphere (-π/2 .. π/2 via π); Defend: right hemisphere
+                        // Attack: left hemisphere; Defend: right hemisphere
                         const t = n === 1 ? 0.5 : pi / (n - 1);
                         const angle = team === 'attack'
-                            ? (Math.PI * 0.55 + t * Math.PI * 0.9)   // ~left arc
-                            : (-Math.PI * 0.45 + t * Math.PI * 0.9); // ~right arc
+                            ? (Math.PI * 0.55 + t * Math.PI * 0.9)
+                            : (-Math.PI * 0.45 + t * Math.PI * 0.9);
                         const baseX = cx + Math.cos(angle) * radius;
                         const baseY = cy + Math.sin(angle) * radius * 0.85;
                         const stacks = (part.initialStacks || part.stacks || []).filter(s => s.count > 0);
                         let local = 0;
                         stacks.forEach((stack, stackIdx) => {
+                            if (list.length >= VISUAL_CAP_PER_SIDE) return;
                             const shipDef = this.ships?.[stack.shipType] || this._syntheticShipStats?.[stack.shipType] || {};
                             const cls = stack.isSynthetic ? 'Cruiser' : inferClass({ name: stack.shipType, hitPoints: shipDef.hitPoints || shipDef.hull });
                             const cfg = CLASS_CONFIG[cls] || CLASS_CONFIG.Fighter;
-                            const maxShow = Math.min(Math.max(1, stack.count), team === 'attack'
-                                ? (cls === 'Capitol' ? 2 : cls === 'Battleship' ? 4 : 10)
-                                : 10);
+                            const classCap = cls === 'Capitol' ? 2 : cls === 'Battleship' ? 4 : VISUAL_CAP_PER_STACK;
+                            const maxShow = Math.min(
+                                Math.max(1, stack.count),
+                                classCap,
+                                VISUAL_CAP_PER_SIDE - list.length
+                            );
+                            // Prefer vector hulls for large fights — sprite decode stalls the first frames
+                            const useSprite = maxShow <= 3;
                             for (let i = 0; i < maxShow; i++) {
                                 const spread = (local % 3) - 1;
                                 const ring = Math.floor(local / 3);
@@ -21694,7 +21741,7 @@ const SHIP_IMAGE_DATA = {
                                     name: stack.shipType,
                                     label: stack.shipType,
                                     color: part.color || (team === 'attack' ? '#00d9ff' : '#ff4a4a'),
-                                    image: shipDef.battleSprite || shipDef.image || SHIP_IMAGE_LOOKUP[stack.shipType]?.image || null,
+                                    image: useSprite ? (shipDef.battleSprite || shipDef.image || SHIP_IMAGE_LOOKUP[stack.shipType]?.image || null) : null,
                                     spriteFacing: shipDef.spriteFacing || SHIP_IMAGE_LOOKUP[stack.shipType]?.facing || 'up',
                                     isStructure: !!stack.isSynthetic,
                                     fixed: !!stack.isSynthetic,
@@ -21713,7 +21760,12 @@ const SHIP_IMAGE_DATA = {
                 if (animParticipants.length) {
                     placeParticipantStacks(animParticipants.filter(p => p.team === 'attack'), 'attack');
                     placeParticipantStacks(animParticipants.filter(p => p.team === 'defend'), 'defend');
-                } else {
+                    // If participant stacks failed to place (empty initialStacks), keep prior attackForce build
+                    if (!attackerShips.length && initAtk.length) {
+                        animParticipants.length = 0; // fall through to flat stack layout below
+                    }
+                }
+                if (!animParticipants.length) {
                     if (initAtk.length) {
                         attackerShips.length = 0;
                         let row = 0, col = 0;
@@ -22208,17 +22260,17 @@ const SHIP_IMAGE_DATA = {
                         finishAnimation();
                         return;
                     }
-                    if (window._battleSkip) {
-                        window._battleSkip = false;
-                        frame = MAX_FRAMES;
-                        finishAnimation();
-                        return;
-                    }
-                    if (frame >= MAX_FRAMES) {
+                    const skipRequested = !!window._battleSkip;
+                    if (skipRequested) window._battleSkip = false;
+                    // Paint at least one frame before ending (avoids blank canvas on skip / stale flag)
+                    const endingAfterPaint = frame > 0 && (skipRequested || frame >= MAX_FRAMES);
+                    if (!endingAfterPaint && frame >= MAX_FRAMES) {
                         finishAnimation();
                         return;
                     }
                     frame++;
+
+                    try {
 
                     // Screen shake
                     const sx = screenShake > 0 ? rnd(-screenShake, screenShake) : 0;
@@ -22457,6 +22509,20 @@ const SHIP_IMAGE_DATA = {
                     ctx.restore();
 
                     ctx.restore(); // end shake
+
+                    // Cap projectile spam on large fleets
+                    if (projectiles.length > 120) {
+                        projectiles.splice(0, projectiles.length - 120);
+                    }
+
+                    } catch (err) {
+                        console.warn('[battleAnim] frame error', err);
+                    }
+
+                    if (endingAfterPaint || frame >= MAX_FRAMES) {
+                        finishAnimation();
+                        return;
+                    }
                     requestAnimationFrame(loop);
                 };
 
@@ -32331,7 +32397,7 @@ const SHIP_IMAGE_DATA = {
         
         function openAdminPanel() {
             const uname = (window.game?.playerData?.username || '').toLowerCase();
-            if (uname !== 'mister') {
+            if (!['mister', 'desporo'].includes(uname)) {
                 if (window.game) window.game.showNotification('⚠️ Admin panel is restricted.');
                 return;
             }
@@ -32341,6 +32407,11 @@ const SHIP_IMAGE_DATA = {
             // Set admin account type badge
             const accountType = window.game.playerData?.accountType || 'Admin';
             document.getElementById('adminAccountType').textContent = accountType;
+
+            // Ensure WS is up so Online Now presence is accurate
+            if (window.MP && window.MP.token && typeof window.MP.connect === 'function') {
+                window.MP.connect().catch(() => {});
+            }
             
             // Load default tab
             switchAdminTab('players');
@@ -32500,7 +32571,7 @@ const SHIP_IMAGE_DATA = {
         async function adminGrantResources(label, payload, afterApply) {
             if (!window.game) { adminResourceLog('&#9888; Game not loaded.'); return; }
             const uname = (window.game.playerData?.username || '').toLowerCase();
-            if (uname !== 'mister') {
+            if (!['mister', 'desporo'].includes(uname)) {
                 adminResourceLog('&#9888; Admin resource grants are restricted.');
                 return;
             }
@@ -32585,106 +32656,185 @@ const SHIP_IMAGE_DATA = {
         }
 
 
-        function loadPlayerList() {
+        function _adminRenderPlayerCards(players) {
             const playerList = document.getElementById('playerList');
-            if (!dbManager) {
-                playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">Database not available</div>';
-                return;
-            }
-            
-            const players = Array.from(dbManager.players.values());
-            
-            if (players.length === 0) {
+            if (!playerList) return;
+            if (!players.length) {
                 playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">No players found</div>';
                 return;
             }
-            
             playerList.innerHTML = players.map(player => {
-                const lastLogin = new Date(player.lastLogin);
-                const createdAt = new Date(player.createdAt);
+                const lastLogin = player.lastLogin ? new Date(player.lastLogin) : null;
+                const createdAt = player.createdAt ? new Date(player.createdAt) : null;
                 const accountType = player.accountType || 'Player';
-                
+                const online = !!player.online;
                 let accountBadgeColor = 'var(--text-secondary)';
                 if (accountType === 'Admin') accountBadgeColor = 'var(--accent-warning)';
                 else if (accountType === 'CSR') accountBadgeColor = 'var(--accent-primary)';
                 else if (accountType === 'Benefactor') accountBadgeColor = 'var(--accent-secondary)';
-                
+                const safeUser = String(player.username || '').replace(/</g, '&lt;');
+                const safeEmail = String(player.email || '').replace(/</g, '&lt;');
+                const safeRace = String(player.race || 'Unknown').replace(/</g, '&lt;');
                 return `
-                    <div class="admin-player-card">
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px;">
+                    <div class="admin-player-card" data-username="${safeUser.toLowerCase()}">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; gap: 10px;">
                             <div>
-                                <div style="font-weight: 700; font-size: 16px; color: var(--text-primary); margin-bottom: 4px;">
-                                    ${player.username}
+                                <div style="font-weight: 700; font-size: 16px; color: var(--text-primary); margin-bottom: 4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <span>${safeUser}</span>
+                                    <span style="padding:2px 8px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:0.4px;background:${online ? 'rgba(0,255,136,0.15)' : 'rgba(139,163,199,0.12)'};color:${online ? '#00ff88' : '#8ba3c7'};border:1px solid ${online ? 'rgba(0,255,136,0.45)' : 'rgba(139,163,199,0.25)'};">
+                                        ${online ? '● ONLINE' : '○ OFFLINE'}
+                                    </span>
                                 </div>
                                 <div style="font-size: 12px; color: var(--text-secondary);">
-                                    ${player.email}
+                                    ${safeEmail || '—'}
                                 </div>
                             </div>
                             <div style="padding: 4px 12px; background: ${accountBadgeColor}; color: ${accountType === 'Admin' ? 'black' : 'white'}; border-radius: 4px; font-size: 11px; font-weight: 700;">
                                 ${accountType}
                             </div>
                         </div>
-                        
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: var(--text-secondary);">
-                            <div>Race: <span style="color: var(--text-primary);">${player.race}</span></div>
-                            <div>Created: <span style="color: var(--text-primary);">${createdAt.toLocaleDateString()}</span></div>
-                            <div>Last Login: <span style="color: var(--text-primary);">${lastLogin.toLocaleDateString()}</span></div>
-                            <div>Planets: <span style="color: var(--text-primary);">${player.stats?.planetsColonized || 0}</span></div>
+                            <div>Race: <span style="color: var(--text-primary);">${safeRace}</span></div>
+                            <div>Planets: <span style="color: var(--text-primary);">${player.planets != null ? player.planets : (player.stats?.planetsColonized || 0)}</span></div>
+                            <div>Created: <span style="color: var(--text-primary);">${createdAt ? createdAt.toLocaleDateString() : '—'}</span></div>
+                            <div>Last Login: <span style="color: var(--text-primary);">${lastLogin ? lastLogin.toLocaleString() : '—'}</span></div>
+                            ${player.horizonCoins != null ? `<div>HC: <span style="color: var(--text-primary);">${Number(player.horizonCoins).toLocaleString()}</span></div>` : ''}
                         </div>
                     </div>
                 `;
             }).join('');
+            filterPlayerList();
+        }
+
+        async function loadPlayerList() {
+            const playerList = document.getElementById('playerList');
+            const meta = document.getElementById('adminPlayerListMeta');
+            if (!playerList) return;
+            playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">Loading players…</div>';
+            if (meta) meta.textContent = '';
+
+            // Prefer live server roster when logged into multiplayer
+            if (window.MP && window.MP.token && typeof window.MP.adminListPlayers === 'function') {
+                try {
+                    if (typeof window.MP.connect === 'function') {
+                        try { await window.MP.connect(); } catch (e) { /* presence still works if already up */ }
+                    }
+                    const data = await window.MP.adminListPlayers();
+                    const players = Array.isArray(data.players) ? data.players : [];
+                    window._adminPlayerCache = players;
+                    _adminRenderPlayerCards(players);
+                    if (meta) {
+                        meta.textContent = `${players.length} accounts · ${data.onlineCount || 0} online`;
+                    }
+                    return;
+                } catch (err) {
+                    console.warn('[admin] server player list failed', err);
+                    if (meta) meta.textContent = 'Server list failed — showing local fallback';
+                }
+            }
+
+            // Offline / local fallback (browser dbManager)
+            if (!dbManager) {
+                playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">Log in online to view server accounts, or open a local session with dbManager.</div>';
+                return;
+            }
+            const players = Array.from(dbManager.players.values()).map(p => ({
+                ...p,
+                online: false,
+                planets: p.stats?.planetsColonized || 0,
+            }));
+            window._adminPlayerCache = players;
+            _adminRenderPlayerCards(players);
+            if (meta) meta.textContent = `${players.length} local accounts (offline)`;
         }
         
         function filterPlayerList() {
-            const searchText = document.getElementById('playerSearchInput').value.toLowerCase();
+            const searchText = (document.getElementById('playerSearchInput')?.value || '').toLowerCase();
             const cards = document.querySelectorAll('.admin-player-card');
-            
             cards.forEach(card => {
                 const text = card.textContent.toLowerCase();
                 card.style.display = text.includes(searchText) ? 'block' : 'none';
             });
         }
         
-        function loadServerStats() {
-            if (!dbManager) return;
-            
+        async function loadServerStats() {
+            const statusEl = document.getElementById('adminServerStatsStatus');
+            const setStat = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val;
+            };
+            if (statusEl) statusEl.textContent = 'Loading server stats…';
+
+            if (window.MP && window.MP.token && typeof window.MP.adminServerStats === 'function') {
+                try {
+                    if (typeof window.MP.connect === 'function') {
+                        try { await window.MP.connect(); } catch (e) { /* ignore */ }
+                    }
+                    const data = await window.MP.adminServerStats();
+                    setStat('statTotalPlayers', data.totalPlayers || 0);
+                    setStat('statOnlineNow', data.onlineNow || 0);
+                    setStat('statActivePlayers', data.active24h || 0);
+                    setStat('statTotalPlanets', data.totalPlanets || 0);
+                    const typeCounts = data.accountTypes || {};
+                    const statsHtml = Object.entries(typeCounts).map(([type, count]) => {
+                        let color = 'var(--text-secondary)';
+                        if (type === 'Admin') color = 'var(--accent-warning)';
+                        else if (type === 'CSR') color = 'var(--accent-primary)';
+                        else if (type === 'Benefactor') color = 'var(--accent-secondary)';
+                        return `
+                            <div style="display: flex; justify-content: space-between; padding: 12px; background: var(--bg-primary); border-radius: 6px; margin-bottom: 8px;">
+                                <div style="color: ${color}; font-weight: 700;">${type}</div>
+                                <div style="color: var(--text-primary); font-weight: 900;">${count}</div>
+                            </div>
+                        `;
+                    }).join('') || '<div style="color:var(--text-secondary);">No accounts yet</div>';
+                    const dist = document.getElementById('accountTypeStats');
+                    if (dist) dist.innerHTML = statsHtml;
+                    if (statusEl) {
+                        const up = Number(data.uptimeSeconds) || 0;
+                        const mins = Math.floor(up / 60);
+                        statusEl.textContent = `Live from server · uptime ${mins}m · refreshed ${new Date().toLocaleTimeString()}`;
+                    }
+                    return;
+                } catch (err) {
+                    console.warn('[admin] server stats failed', err);
+                    if (statusEl) statusEl.textContent = 'Server stats failed — trying local fallback';
+                }
+            }
+
+            if (!dbManager) {
+                if (statusEl) statusEl.textContent = 'Log in online to load server stats.';
+                return;
+            }
             const players = Array.from(dbManager.players.values());
             const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
             const activePlayers = players.filter(p => p.lastLogin > oneDayAgo);
-            
-            document.getElementById('statTotalPlayers').textContent = players.length;
-            document.getElementById('statActivePlayers').textContent = activePlayers.length;
-            
-            // Count planets across all players
+            setStat('statTotalPlayers', players.length);
+            setStat('statOnlineNow', 0);
+            setStat('statActivePlayers', activePlayers.length);
             let totalPlanets = 0;
-            if (typeof game !== 'undefined' && game.planets) {
-                totalPlanets = game.planets.length;
-            }
-            document.getElementById('statTotalPlanets').textContent = totalPlanets;
-            
-            // Account type distribution
+            if (typeof game !== 'undefined' && game.planets) totalPlanets = game.planets.length;
+            setStat('statTotalPlanets', totalPlanets);
             const typeCounts = {};
             players.forEach(p => {
                 const type = p.accountType || 'Player';
                 typeCounts[type] = (typeCounts[type] || 0) + 1;
             });
-            
             const statsHtml = Object.entries(typeCounts).map(([type, count]) => {
                 let color = 'var(--text-secondary)';
                 if (type === 'Admin') color = 'var(--accent-warning)';
                 else if (type === 'CSR') color = 'var(--accent-primary)';
                 else if (type === 'Benefactor') color = 'var(--accent-secondary)';
-                
                 return `
                     <div style="display: flex; justify-content: space-between; padding: 12px; background: var(--bg-primary); border-radius: 6px; margin-bottom: 8px;">
                         <div style="color: ${color}; font-weight: 700;">${type}</div>
-                        <div style="color: var(--text-primary); font-weight: 900;">'+count+'</div>
+                        <div style="color: var(--text-primary); font-weight: 900;">${count}</div>
                     </div>
                 `;
             }).join('');
-            
-            document.getElementById('accountTypeStats').innerHTML = statsHtml;
+            const dist = document.getElementById('accountTypeStats');
+            if (dist) dist.innerHTML = statsHtml;
+            if (statusEl) statusEl.textContent = 'Local fallback (offline)';
         }
         
         function adminSetAccountType(accountType) {

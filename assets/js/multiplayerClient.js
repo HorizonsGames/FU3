@@ -109,6 +109,15 @@ class MPClient {
         return this._post('/api/economy/grant', payload);
     }
 
+    // ── REST: admin panel ─────────────────────────────────────────────
+    async adminListPlayers() {
+        return this._get('/api/admin/players');
+    }
+
+    async adminServerStats() {
+        return this._get('/api/admin/stats');
+    }
+
     // ── REST: PayPal Horizon Coin packs ───────────────────────────────
     async createPayPalIntent(packId) {
         return this._post('/api/paypal/intent', { packId });

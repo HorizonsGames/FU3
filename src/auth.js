@@ -60,12 +60,34 @@ async function authenticateSocketToken(token) {
     return getPlayerBySession(token);
 }
 
+const ADMIN_USERNAMES = new Set(['mister', 'desporo']);
+
+function isAdminPlayer(player) {
+    if (!player) return false;
+    if (String(player.account_type || '').toLowerCase() === 'admin') return true;
+    return ADMIN_USERNAMES.has(String(player.username || '').toLowerCase());
+}
+
+/** Express middleware: requireAuth + admin allowlist / account_type. */
+function requireAdmin(req, res, next) {
+    requireAuth(req, res, (err) => {
+        if (err) return next(err);
+        if (!isAdminPlayer(req.player)) {
+            return res.status(403).json({ error: 'Admin access required.' });
+        }
+        next();
+    });
+}
+
 module.exports = {
     createSession,
     getPlayerBySession,
     hashPassword,
     verifyPassword,
     requireAuth,
+    requireAdmin,
+    isAdminPlayer,
+    ADMIN_USERNAMES,
     authenticateSocketToken,
     generateId,
 };
