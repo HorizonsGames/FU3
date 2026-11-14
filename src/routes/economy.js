@@ -24,7 +24,11 @@ async function savePlayer(client, playerId, state, horizonCoins) {
 }
 
 function isAdmin(player) {
-    return String(player.account_type || '').toLowerCase() === 'admin';
+    if (!player) return false;
+    if (String(player.account_type || '').toLowerCase() === 'admin') return true;
+    // Client admin panel is gated to username "mister" — keep server grants in sync
+    // even if account_type was never promoted via seed-admin.js.
+    return String(player.username || '').toLowerCase() === 'mister';
 }
 
 // POST /api/economy/collect — apply time-based production from server-stored planets
@@ -125,14 +129,6 @@ router.post('/economy/spend', auth.requireAuth, async (req, res) => {
 // body: { reason, resources?, horizonCoins?, inventoryAdd?: [] }
 router.post('/economy/grant', auth.requireAuth, async (req, res) => {
     const reason = String(req.body?.reason || '');
-    const clamped = eco.clampGrant(
-        reason,
-        { resources: req.body?.resources, horizonCoins: req.body?.horizonCoins },
-        req.body?.inventoryAdd,
-        isAdmin(req.player)
-    );
-    if (clamped.error) return res.status(400).json({ error: clamped.error });
-
     const client = await db.pool.connect();
     try {
         await client.query('BEGIN');
@@ -141,6 +137,18 @@ router.post('/economy/grant', auth.requireAuth, async (req, res) => {
             await client.query('ROLLBACK');
             return res.status(401).json({ error: 'Player not found.' });
         }
+
+        const clamped = eco.clampGrant(
+            reason,
+            { resources: req.body?.resources, horizonCoins: req.body?.horizonCoins },
+            req.body?.inventoryAdd,
+            isAdmin(player)
+        );
+        if (clamped.error) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: clamped.error });
+        }
+
         const state = eco.normalizeState(player);
         eco.applyDelta(state.resources, clamped.resources);
         state.horizonCoins += clamped.horizonCoins;
