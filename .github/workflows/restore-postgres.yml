@@ -1,0 +1,116 @@
+# Restore Heroku Postgres from a previous Backup Postgres artifact, then restart dynos.
+#
+# Required repo secrets:
+#   DATABASE_URL          — Heroku Postgres connection string
+#   HEROKU_API_KEY        — Heroku platform API token (Account → API Key)
+#   HEROKU_APP_NAME       — Heroku app name (e.g. fu3-prod)
+#
+# Manual only. Destructive: replaces live DB contents with the chosen backup.
+
+name: Restore Postgres from Backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_name:
+        description: "Exact artifact name from a Backup Postgres run (leave empty = newest fu3-pg-backup-*)"
+        required: false
+        default: ""
+      confirm:
+        description: "Type RESTORE to confirm overwriting the live database"
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  restore:
+    name: Restore dump + restart dyno
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Confirm destructive restore
+        run: |
+          if [ "${{ inputs.confirm }}" != "RESTORE" ]; then
+            echo "::error::Refusing to run. Set confirm input to exactly RESTORE."
+            exit 1
+          fi
+
+      - name: Verify secrets
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+        run: |
+          missing=0
+          [ -z "$DATABASE_URL" ] && echo "::error::Missing DATABASE_URL" && missing=1
+          [ -z "$HEROKU_API_KEY" ] && echo "::error::Missing HEROKU_API_KEY" && missing=1
+          [ -z "$HEROKU_APP_NAME" ] && echo "::error::Missing HEROKU_APP_NAME" && missing=1
+          exit $missing
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: Resolve backup artifact
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANTED: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p backups
+          if [ -n "$WANTED" ]; then
+            NAME="$WANTED"
+          else
+            # Newest successful Backup Postgres artifact matching fu3-pg-backup-*
+            NAME="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+              --jq '[.artifacts[] | select(.name|startswith("fu3-pg-backup-")) | select(.expired==false)] | sort_by(.created_at) | reverse | .[0].name // empty')"
+            if [ -z "$NAME" ]; then
+              echo "::error::No fu3-pg-backup-* artifacts found. Run Backup Postgres first."
+              exit 1
+            fi
+          fi
+          echo "Using artifact: $NAME"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
+          # Download via gh (needs artifact id)
+          ID="$(gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+            --jq --arg n "$NAME" '.artifacts[] | select(.name==$n) | .id' | head -n1)"
+          if [ -z "$ID" ]; then
+            echo "::error::Artifact not found: $NAME"
+            exit 1
+          fi
+          gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/${{ github.repository }}/actions/artifacts/${ID}/zip" \
+            > /tmp/backup-artifact.zip
+          unzip -o /tmp/backup-artifact.zip -d backups
+          ls -lah backups
+
+      - name: Restore into Heroku Postgres + restart
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
+        run: bash scripts/restore-postgres.sh
+
+      - name: Summary
+        run: |
+          {
+            echo "### Postgres restore complete"
+            echo ""
+            echo "- Artifact: \`${{ steps.pick.outputs.name }}\`"
+            echo "- App: \`${{ secrets.HEROKU_APP_NAME }}\`"
+            echo "- Dynos were restarted after restore"
+          } >> "$GITHUB_STEP_SUMMARY"

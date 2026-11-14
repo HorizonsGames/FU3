@@ -81,6 +81,29 @@ after any change to confirm nothing broke.
   before this backend existed has progress trapped in that browser's
   localStorage; registering a real account starts fresh.
 
+## Postgres backup & restore (GitHub Actions)
+
+Two workflows under `.github/workflows/`:
+
+| Workflow | When | What it does |
+|---|---|---|
+| **Backup Postgres** | Daily 06:00 UTC + manual | `pg_dump` of `DATABASE_URL` → `.sql.gz` artifact (`fu3-pg-backup-*`, 14-day retention) |
+| **Restore Postgres from Backup** | Manual only | Downloads an artifact, restores into `DATABASE_URL`, restarts Heroku dynos |
+
+**Repo secrets required**
+
+- `DATABASE_URL` — Heroku Postgres URL  
+- `HEROKU_API_KEY` — Heroku account API key (restore only)  
+- `HEROKU_APP_NAME` — Heroku app name (restore + artifact naming)
+
+Restore is destructive: the workflow asks you to type `RESTORE` to confirm. Scripts also work locally:
+
+```bash
+export DATABASE_URL='postgres://…'
+bash scripts/backup-postgres.sh
+bash scripts/restore-postgres.sh backups/your-dump.sql.gz
+```
+
 ## Local development
 
 ```bash
