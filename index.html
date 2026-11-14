@@ -30319,47 +30319,91 @@ const SHIP_IMAGE_DATA = {
             }
         }
 
-        function adminAddCredits() {
+        async function adminGrantResources(label, payload, afterApply) {
             if (!window.game) { adminResourceLog('&#9888; Game not loaded.'); return; }
-            window.game.resources.credits = (window.game.resources.credits || 0) + 10000000;
+            const uname = (window.game.playerData?.username || '').toLowerCase();
+            if (uname !== 'mister') {
+                adminResourceLog('&#9888; Admin resource grants are restricted.');
+                return;
+            }
+
+            // Online: server-authoritative grant (PUT /state cannot invent wallets)
+            if (window.MP && window.MP.token && typeof serverEconomyGrant === 'function') {
+                adminResourceLog('&#8987; Granting ' + label + ' on server...');
+                const result = await serverEconomyGrant({ reason: 'admin', ...payload });
+                if (!result.ok) {
+                    adminResourceLog('&#9888; Grant failed: ' + (result.error || 'unknown error'));
+                    if (window.game.showNotification) {
+                        window.game.showNotification('Admin grant failed: ' + (result.error || 'unknown error'));
+                    }
+                    return;
+                }
+                if (typeof afterApply === 'function') afterApply();
+                const res = window.game.resources || {};
+                adminResourceLog(label + ' granted. Credits ' + (res.credits || 0).toLocaleString()
+                    + ' | Metal ' + (res.metal || 0).toLocaleString()
+                    + ' | Food ' + (res.food || res.he3 || 0).toLocaleString()
+                    + ' | RP ' + (res.researchPoints || 0).toLocaleString()
+                    + ' | HC ' + (window.game.horizonCoins || 0).toLocaleString());
+                return;
+            }
+
+            // Offline / local-only fallback
+            if (payload.resources) {
+                Object.keys(payload.resources).forEach((k) => {
+                    window.game.resources[k] = (window.game.resources[k] || 0) + (payload.resources[k] || 0);
+                });
+            }
+            if (payload.horizonCoins) {
+                window.game.horizonCoins = (window.game.horizonCoins || 0) + payload.horizonCoins;
+            }
             window.game._lastCredits = null;
-            window.game.updateResources();
-            adminResourceLog('&#128179; Added <strong style="color:#ffd700;">10,000,000 Credits</strong>. Total: ' + window.game.resources.credits.toLocaleString());
+            window.game._lastMetal = null;
+            window.game._lastHe3 = null;
+            if (typeof window.game.updateResources === 'function') window.game.updateResources();
+            if (typeof afterApply === 'function') afterApply();
+            adminResourceLog(label + ' added locally (offline mode).');
+        }
+
+        function adminAddCredits() {
+            return adminGrantResources(
+                '&#128179; <strong style="color:#ffd700;">10,000,000 Credits</strong>',
+                { resources: { credits: 10000000 } }
+            );
         }
 
         function adminAddMetal() {
-            if (!window.game) { adminResourceLog('&#9888; Game not loaded.'); return; }
-            window.game.resources.metal = (window.game.resources.metal || 0) + 10000000;
-            window.game._lastMetal = null;
-            window.game.updateResources();
-            adminResourceLog('&#9935; Added <strong style="color:#8ba3c7;">10,000,000 Metal</strong>. Total: ' + window.game.resources.metal.toLocaleString());
+            return adminGrantResources(
+                '&#9935; <strong style="color:#8ba3c7;">10,000,000 Metal</strong>',
+                { resources: { metal: 10000000 } }
+            );
         }
 
         function adminAddFood() {
-            if (!window.game) { adminResourceLog('&#9888; Game not loaded.'); return; }
-            window.game.resources.food = (window.game.resources.food || 0) + 10000000;
-            window.game.resources.he3  = (window.game.resources.he3  || 0) + 10000000;
-            window.game._lastHe3 = null;
-            window.game.updateResources();
-            adminResourceLog('&#127807; Added <strong style="color:#00ff88;">10,000,000 Food</strong>. Total: ' + (window.game.resources.food || window.game.resources.he3).toLocaleString());
+            return adminGrantResources(
+                '&#127807; <strong style="color:#00ff88;">10,000,000 Food</strong>',
+                { resources: { food: 10000000, he3: 10000000 } }
+            );
         }
 
         function adminAddResearch() {
-            if (!window.game) { adminResourceLog('&#9888; Game not loaded.'); return; }
-            window.game.resources.researchPoints = (window.game.resources.researchPoints || 0) + 250;
-            window.game.updateResources();
-            adminResourceLog('&#128300; Added <strong style="color:#a855f7;">250 Research Points</strong>. Total: ' + window.game.resources.researchPoints.toLocaleString());
+            return adminGrantResources(
+                '&#128300; <strong style="color:#a855f7;">250 Research Points</strong>',
+                { resources: { researchPoints: 250 } }
+            );
         }
 
         function adminAddHorizonCoins() {
-            if (!window.game) { adminResourceLog('&#9888; Game not loaded.'); return; }
-            window.game.horizonCoins = (window.game.horizonCoins || 0) + 5000;
-            // Refresh commander shop display if open
-            if (window.game.commanderManager) {
-                window.game.commanderManager._lastFingerprint = null;
-                window.game.commanderManager.refreshView();
-            }
-            adminResourceLog('&#128142; Added <strong style="color:#00d9ff;">5,000 Horizon Coins</strong>. Total: ' + window.game.horizonCoins.toLocaleString());
+            return adminGrantResources(
+                '&#128142; <strong style="color:#00d9ff;">5,000 Horizon Coins</strong>',
+                { horizonCoins: 5000 },
+                () => {
+                    if (window.game.commanderManager) {
+                        window.game.commanderManager._lastFingerprint = null;
+                        window.game.commanderManager.refreshView();
+                    }
+                }
+            );
         }
 
 
