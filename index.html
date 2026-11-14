@@ -4970,7 +4970,6 @@
             border-radius: 12px;
             padding: 20px;
             text-align: center;
-            cursor: pointer;
             transition: all 0.3s ease;
         }
         
@@ -5004,6 +5003,39 @@
             font-size: 20px;
             color: #00cc66;
             font-weight: 700;
+            margin-bottom: 14px;
+        }
+
+        .paypal-buy-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 11px 14px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #0070ba, #003087);
+            color: #fff;
+            font-weight: 800;
+            font-size: 13px;
+            letter-spacing: 0.3px;
+            cursor: pointer;
+            transition: filter 0.2s ease, transform 0.2s ease;
+        }
+        .paypal-buy-btn:hover {
+            filter: brightness(1.12);
+            transform: translateY(-1px);
+        }
+        .coin-packs-footnote {
+            margin-top: 18px;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 217, 255, 0.25);
+            background: rgba(0, 217, 255, 0.06);
+            color: var(--text-secondary);
+            font-size: 12px;
+            line-height: 1.5;
         }
         
         /* MYSTERY CARD STYLES */
@@ -5904,6 +5936,15 @@
 </head>
 <body>
     <script src="assets/js/multiplayerClient.js"></script>
+    <script>
+        // Horizon Coin store → PayPal checkout.
+        // Live buys use POST /api/paypal/intent then PayPal IPN auto-grants HC on approval.
+        window.FU_PAYPAL_CONFIG = window.FU_PAYPAL_CONFIG || {
+            paypalMe: 'horizonsgames',              // https://paypal.me/horizonsgames
+            businessEmail: 'admin@horizonsgames.com', // must match PAYPAL_BUSINESS_EMAIL on server
+            currency: 'USD',
+        };
+    </script>
 
     <!-- ========== LOGIN SCREEN ========== -->
     <!-- Real accounts (via MP backend when configured, local fallback otherwise) —
@@ -9077,45 +9118,42 @@
                 // Randomly select a commander
                 const randomCommander = availableCommanders[Math.floor(Math.random() * availableCommanders.length)];
                 
-                // Deduct coins
-                const _finishGachaSpend = () => {
-                    console.log('💎 Coins after purchase:', this.game.horizonCoins);
+                const grantCommander = () => {
+                    // Show reveal modal with animation
+                    this.revealCommander(randomCommander);
+
+                    const newCommander = {
+                        ...randomCommander,
+                        stars: 1,
+                        acquiredDate: Date.now()
+                    };
+
+                    this.game.commanders.push(newCommander);
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                    console.log('📦 Commander added to collection:', newCommander.name);
                     if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+
+                    if (window.chatManager) {
+                        chatManager.addMessage('SYSTEM', `✨ GACHA PULL! You obtained ${randomCommander.name} (${rarity})!`, 'system');
+                    }
+
+                    this._lastFingerprint = null;
+                    this.game.updateUI();
                 };
+
                 if (window.MP && window.MP.token && typeof serverEconomySpend === 'function') {
                     serverEconomySpend({ horizonCoins: rarityInfo.horizonCoinCost }).then((r) => {
                         if (!r.ok) {
                             alert(r.error || 'Insufficient Horizon Coins on server');
                             return;
                         }
-                        _finishGachaSpend();
+                        grantCommander();
                     });
-                    // Commander roll continues below using local state; HC already applied from server
-                } else {
-                    this.game.horizonCoins -= rarityInfo.horizonCoinCost;
-                    _finishGachaSpend();
+                    return;
                 }
-                
-                // Show reveal modal with animation
-                this.revealCommander(randomCommander);
-                
-                // Add commander to collection
-                const newCommander = {
-                    ...randomCommander,
-                    stars: 1,
-                    acquiredDate: Date.now()
-                };
-                
-                this.game.commanders.push(newCommander);
-                console.log('📦 Commander added to collection:', newCommander.name);
-                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
-                
-                if (window.chatManager) {
-                    chatManager.addMessage('SYSTEM', `✨ GACHA PULL! You obtained ${randomCommander.name} (${rarity})!`, 'system');
-                }
-                
-                this._lastFingerprint = null; // invalidate cache after purchase
-                this.game.updateUI();
+
+                this.game.horizonCoins -= rarityInfo.horizonCoinCost;
+                grantCommander();
             }
             
             revealCommander(commander) {
@@ -9303,6 +9341,9 @@
                     this.game.showNotification('\u{1F4CC} Commander assigned to fleet!');
                 }
 
+                if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+
                 this.closeAssignmentModal();
                 this.refreshView();
 
@@ -9317,25 +9358,31 @@
             }
             
             unassignCommander(commanderId) {
+                let changed = false;
                 // Find where this commander is assigned
                 for (let planetId in this.game.commanderAssignments.planets) {
                     if (this.game.commanderAssignments.planets[planetId] === commanderId) {
                         delete this.game.commanderAssignments.planets[planetId];
                         this.game.showNotification('✅ Commander unassigned from planet');
-                        this.refreshView();
-                        this.game.renderFleetList();
-                        return;
+                        changed = true;
+                        break;
                     }
                 }
-                
-                for (let fleetId in this.game.commanderAssignments.fleets) {
-                    if (this.game.commanderAssignments.fleets[fleetId] === commanderId) {
-                        delete this.game.commanderAssignments.fleets[fleetId];
-                        this.game.showNotification('✅ Commander unassigned from fleet');
-                        this.refreshView();
-                        this.game.renderFleetList();
-                        return;
+                if (!changed) {
+                    for (let fleetId in this.game.commanderAssignments.fleets) {
+                        if (this.game.commanderAssignments.fleets[fleetId] === commanderId) {
+                            delete this.game.commanderAssignments.fleets[fleetId];
+                            this.game.showNotification('✅ Commander unassigned from fleet');
+                            changed = true;
+                            break;
+                        }
                     }
+                }
+                if (changed) {
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                    if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+                    this.refreshView();
+                    this.game.renderFleetList();
                 }
             }
             
@@ -9423,6 +9470,7 @@
                 this.closeFleetCommanderModal();
                 this.refreshView();
                 this.game.renderFleetList();
+                if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                 this.game.saveGameState();
             }
             
@@ -9455,6 +9503,7 @@
                 };
                 
                 this.game.commanders.push(newCommander);
+                if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                 if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
                 
                 if (window.chatManager) {
@@ -9561,6 +9610,7 @@
                     };
                     
                     this.game.commanders.push(upgradedCommander);
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                     if (this.game && typeof this.game.saveGameState === 'function') this.game.saveGameState();
                     
                     if (window.chatManager) {
@@ -9679,6 +9729,7 @@
                     };
                     
                     this.game.commanders.push(newCommander);
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
                     if (this.game && typeof this.game.saveGameState === 'function') this.game.saveGameState();
                     
                     if (window.chatManager) {
@@ -13708,6 +13759,20 @@ const SHIP_IMAGE_DATA = {
                             if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
                                 applyServerEconomyState(res, { skipSave: true });
                             }
+                            if (res && window.game) {
+                                if (res.commandersRev != null) {
+                                    window.game.commandersRev = Math.max(
+                                        window.game.commandersRev || 0,
+                                        Math.floor(Number(res.commandersRev) || 0)
+                                    );
+                                }
+                                if (res.state && Array.isArray(res.state.commanders)) {
+                                    window.game.commanders = res.state.commanders;
+                                    if (res.state.commanderAssignments) {
+                                        window.game.commanderAssignments = res.state.commanderAssignments;
+                                    }
+                                }
+                            }
                         });
                     };
                     if (!light && typeof reconcileEconomyWithServer === 'function') {
@@ -14742,7 +14807,10 @@ const SHIP_IMAGE_DATA = {
                     planets: {}, // planetId: commanderId
                     fleets: {}   // fleetId: commanderId
                 };
+                this.commandersRev = 0; // monotonic — server rejects stale empties
                 this.horizonCoins = 500; // Starting Horizon Coins
+                this.pendingMissions = [];
+                this.deferredAttacks = [];
                 
                 // Interval IDs for clearing
                 this.resourceInterval = null;
@@ -14928,6 +14996,13 @@ const SHIP_IMAGE_DATA = {
                         this.researchQueue = playerData.gameState.researchQueue;
                         console.log(`🔬 Loaded ${this.researchQueue.length} research items`);
                     }
+                    if (playerData.gameState.researchCaughtUpAt) {
+                        const caught = Date.parse(playerData.gameState.researchCaughtUpAt);
+                        if (Number.isFinite(caught)) {
+                            this._researchCaughtUpAt = caught;
+                            this._buildCaughtUpAt = caught;
+                        }
+                    }
 
                     if (playerData.gameState.techBonuses) {
                         this.techBonuses = { ...this.techBonuses, ...playerData.gameState.techBonuses };
@@ -14991,6 +15066,13 @@ const SHIP_IMAGE_DATA = {
                         console.log(`Loaded ${this.commanders.length} commanders`);
                     } else if (!Array.isArray(this.commanders)) {
                         this.commanders = [];
+                    }
+                    this.commandersRev = Math.max(0, Math.floor(Number(playerData.gameState.commandersRev) || 0));
+                    if (Array.isArray(playerData.gameState.pendingMissions)) {
+                        this.pendingMissions = playerData.gameState.pendingMissions;
+                    }
+                    if (Array.isArray(playerData.gameState.deferredAttacks)) {
+                        this.deferredAttacks = playerData.gameState.deferredAttacks;
                     }
 
                     if (playerData.gameState.commanderAssignments) {
@@ -15123,6 +15205,51 @@ const SHIP_IMAGE_DATA = {
                 }
             }
             
+            bumpCommandersRev() {
+                this.commandersRev = Math.max(0, Math.floor(Number(this.commandersRev) || 0)) + 1;
+            }
+
+            /** Finish sieges / deferred attacks / temp bonuses after server offline catch-up. */
+            _resumeOfflineProgress() {
+                const now = Date.now();
+                // Re-arm or resolve active sieges (server may have already resolved some)
+                (this.sieges || []).forEach((siege) => {
+                    if (!siege || !siege.active) return;
+                    const endsAt = Number(siege.endsAt) || 0;
+                    const target = (this.planets || []).find(p => p && p.id === siege.planetId);
+                    if (!target) return;
+                    if (endsAt <= now) {
+                        this._resolveSiege(siege, target, siege.missionFleetIdx, siege.missionShipNames, siege.force || {});
+                    } else if (!siege._timerId) {
+                        siege._timerId = setTimeout(() => {
+                            this._resolveSiege(siege, target, siege.missionFleetIdx, siege.missionShipNames, siege.force || {});
+                        }, Math.max(250, endsAt - now));
+                    }
+                });
+
+                // Attacks that arrived while offline (server freed ships + deferred combat)
+                const deferred = Array.isArray(this.deferredAttacks) ? this.deferredAttacks.slice() : [];
+                this.deferredAttacks = [];
+                deferred.forEach((mission) => {
+                    const target = (this.planets || []).find(p => p && p.id === mission.planetId);
+                    if (!target) return;
+                    try {
+                        this.resolveAttack(
+                            target,
+                            mission.attackForce || {},
+                            mission.totalPower || 0,
+                            mission.missionFleetIndex,
+                            mission.missionShipNames
+                        );
+                    } catch (e) {}
+                });
+
+                // Expire temp craft bonuses client-side (server already pruned)
+                if (Array.isArray(this.temporaryBonuses)) {
+                    this.temporaryBonuses = this.temporaryBonuses.filter(b => b && (Number(b.expiresAt) || 0) > now);
+                }
+            }
+
             saveGameState() {
                 // Prefer AuthManager (writes local DB + MP server). Fall back to MP-only.
                 if (window.auth && typeof window.auth.saveGameState === 'function') {
@@ -15133,6 +15260,12 @@ const SHIP_IMAGE_DATA = {
                     window.MP.saveState(this.getGameState()).then((res) => {
                         if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
                             applyServerEconomyState(res, { skipSave: true });
+                        }
+                        if (res && res.commandersRev != null) {
+                            this.commandersRev = Math.max(this.commandersRev || 0, Math.floor(Number(res.commandersRev) || 0));
+                        }
+                        if (res && res.state && Array.isArray(res.state.commanders)) {
+                            this.commanders = res.state.commanders;
                         }
                     }).catch((e) => console.warn('[MP] save failed:', e.message));
                 }
@@ -15148,6 +15281,9 @@ const SHIP_IMAGE_DATA = {
                     fleets: this.fleets,
                     researchQueue: this.researchQueue,
                     techResearchQueue: this.techResearchQueue || [],
+                    researchCaughtUpAt: this._researchCaughtUpAt
+                        ? new Date(this._researchCaughtUpAt).toISOString()
+                        : new Date().toISOString(),
                     techBonuses: this.techBonuses || {},
                     technologies: Object.fromEntries(
                         Object.entries(this.technologies || {}).map(([id, tech]) => [id, {
@@ -15161,6 +15297,9 @@ const SHIP_IMAGE_DATA = {
                     inventory: this.inventory || [],
                     commanders: Array.isArray(this.commanders) ? this.commanders : [],
                     commanderAssignments: this.commanderAssignments || { planets: {}, fleets: {} },
+                    commandersRev: Math.max(0, Math.floor(Number(this.commandersRev) || 0)),
+                    pendingMissions: Array.isArray(this.pendingMissions) ? this.pendingMissions : [],
+                    deferredAttacks: Array.isArray(this.deferredAttacks) ? this.deferredAttacks : [],
                     artifactBonuses: this.artifactBonuses || { food: 0, populationGrowth: 0 },
                     capturedShips: this.capturedShips || {},
                     reverseEngineered: this.reverseEngineered || {},
@@ -15261,7 +15400,16 @@ const SHIP_IMAGE_DATA = {
                     // Schedule first alien encounter (30–90 minutes after login for first encounter)
                     setTimeout(() => this._scheduleAlienEncounter(), 30 * 60 * 1000 + Math.random() * 60 * 60 * 1000);
                     
-                    // Resources every 1s; research/build every 2s to cut DOM work
+                    // Catch up research/builds immediately (covers local saves + any
+                    // remaining wall-clock gap after server GET catch-up).
+                    try { this.updateResearch(); } catch (e) {}
+                    try { this.updateBuildQueue(); } catch (e) {}
+                    try { this._resumeOfflineProgress(); } catch (e) {}
+                    try { this.resumePayPalPurchaseIfNeeded(); } catch (e) {}
+
+                    // Resources every 1s; research/build every 2s to cut DOM work.
+                    // While multiplayer: production is also claimed from the server so
+                    // offline time is never lost if the tab dies mid-session.
                     this._slowTick = 0;
                     this.resourceInterval = setInterval(() => {
                         try { this.generateResources(); } catch (e) {}
@@ -15269,6 +15417,9 @@ const SHIP_IMAGE_DATA = {
                         if (this._slowTick % 2 === 0) {
                             try { this.updateResearch(); } catch (e) {}
                             try { this.updateBuildQueue(); } catch (e) {}
+                        }
+                        if (this._slowTick % 60 === 0 && window.MP && window.MP.token && typeof serverEconomyCollect === 'function') {
+                            serverEconomyCollect().catch(() => {});
                         }
                     }, 1000);
                     this.researchInterval = null;
@@ -16656,7 +16807,7 @@ const SHIP_IMAGE_DATA = {
 
                 let html = `<div style="margin-bottom:12px;padding:10px 14px;background:rgba(255,215,0,0.06);border:1px solid rgba(255,215,0,0.3);border-radius:8px;">
                     <div style="font-size:12px;font-weight:700;color:#ffd700;margin-bottom:4px;">🔍 Search All (${searchAllCount} targets)</div>
-                    <div style="font-size:11px;color:#8ba3c7;margin-bottom:8px;">Scan every planet &amp; cluster at once. Cost: ₡${searchAllCostC.toLocaleString()} + ⚡${searchAllCostH.toLocaleString()} · Drop rate +250%</div>
+                    <div style="font-size:11px;color:#8ba3c7;margin-bottom:8px;">Scan every planet &amp; cluster at once. Cost: ₡${searchAllCostC.toLocaleString()} + ⚡${searchAllCostH.toLocaleString()} · Planets: 1 roll · Clusters: 3 rolls · 50% miss each</div>
                     <button onclick="window.game.searchAllPlanetsAndClusters()"
                         style="width:100%;padding:7px;font-size:12px;font-weight:700;background:rgba(255,215,0,0.12);border:1px solid #ffd700;border-radius:6px;color:#ffd700;cursor:pointer;transition:background 0.2s;"
                         onmouseover="this.style.background='rgba(255,215,0,0.22)'" onmouseout="this.style.background='rgba(255,215,0,0.12)'">
@@ -17203,20 +17354,11 @@ const SHIP_IMAGE_DATA = {
                     if (search.timeRemaining <= 0) {
                         clearInterval(searchInterval);
                         delete this.artifactSearches[`cluster_${clusterId}`];
-                        
-                        // Tier-based drop rate bonuses: T1=+10%, T2=+20%, T3=+45%, T4=+60%, T5=+75%
-                        const tierDropBonus = { 1: 1.10, 2: 1.20, 3: 1.45, 4: 1.60, 5: 1.75 };
-                        const tierBoost = tierDropBonus[cluster.tier] || 1.0;
-
-                        const craftingBonus = 1.875 * 3.5 * tierBoost;
-                        const globalDropBoost = 1.5 * 3.5 * tierBoost;
-                        const foundArtifact = this._rollSearchArtifact(1.0, craftingBonus, globalDropBoost);
+                        // Clusters: 3 item rolls (each 50% nothing)
                         const tierLabel = ['','T1','T2','T3','T4','T5'][cluster.tier] || '';
-                        if (foundArtifact) {
-                            this.processArtifactFind(foundArtifact, cluster.name);
-                            this.showNotification(`✨ [${tierLabel} CLUSTER] Found: ${foundArtifact.name} in ${cluster.name}! (${tierBoost.toFixed(2)}× drop bonus)`);
-                        } else {
-                            this.showNotification(`❌ [${tierLabel}] No artifact found in ${cluster.name}. Search again to try your luck!`);
+                        const finds = this._resolveSearchFinds(cluster.name, { rolls: 3 });
+                        if (finds.length) {
+                            this.showNotification(`✨ [${tierLabel} CLUSTER] Search complete in ${cluster.name}.`);
                         }
                         this.renderOwnedPlanets();
                         this.saveGameState();
@@ -17550,7 +17692,22 @@ const SHIP_IMAGE_DATA = {
                     shipCount,
                     alwaysVisible: true
                 });
+                const attackMissionId = `atk_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                const attackArrivesAt = Date.now() + travelTime * 1000;
+                if (!this.pendingMissions) this.pendingMissions = [];
+                this.pendingMissions.push({
+                    id: attackMissionId,
+                    type: 'attack',
+                    arrivesAt: attackArrivesAt,
+                    planetId: target.id,
+                    attackForce,
+                    totalPower,
+                    missionFleetIndex,
+                    missionShipNames: missionShips,
+                });
+                this.saveGameState();
                 setTimeout(() => {
+                    this.pendingMissions = (this.pendingMissions || []).filter(m => m.id !== attackMissionId);
                     this.removeMapFleetTravel(mapFleetId);
                     this.resolveAttack(target, attackForce, totalPower, missionFleetIndex, missionShips);
                 }, travelTime * 1000);
@@ -20510,8 +20667,24 @@ const SHIP_IMAGE_DATA = {
                     color: '#ff6622',
                     alwaysVisible: true
                 });
+                const siegeTravelId = `siege_travel_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+                if (!this.pendingMissions) this.pendingMissions = [];
+                this.pendingMissions.push({
+                    id: siegeTravelId,
+                    type: 'siege_travel',
+                    arrivesAt: Date.now() + travelTime * 1000,
+                    planetId: targetPlanetId,
+                    planetName: target.name,
+                    attackPower: totalPower,
+                    force,
+                    missionFleetIdx,
+                    missionShipNames,
+                    siegeDurationMs: SIEGE_DURATION_MS,
+                });
+                this.saveGameState();
 
                 setTimeout(() => {
+                    this.pendingMissions = (this.pendingMissions || []).filter(m => m.id !== siegeTravelId);
                     this.removeMapFleetTravel(siegeMapId);
                     // Fleet arrives — check if target still enemy-owned
                     if (target.owner === this.selectedRace.name || !target.owner) {
@@ -21951,37 +22124,8 @@ const SHIP_IMAGE_DATA = {
                     if (search.timeRemaining <= 0) {
                         clearInterval(searchInterval);
                         delete this.artifactSearches[planetId];
-                        
-                        // Planet-type bonuses for finding artifacts
-                        let artifactBonus = 1.0;
-                        
-                        // +20% for Barren, Ice, and Forest planets
-                        if (planet.type === 'Barren' || planet.type === 'Ice' || planet.type === 'Forest') {
-                            artifactBonus = 1.20; // +20% chance
-                        }
-                        // +10% for all other planet types
-                        else {
-                            artifactBonus = 1.10; // +10% chance
-                        }
-                        
-                        // +250% drop rate increase applied to all artifact and crafting rolls
-                        // Previous globalDropBoost was 1.5; ×3.5 = 5.25 net multiplier
-                        const craftingBonus = 1.875 * 3.5;    // 6.5625 — crafting material drop weight
-                        const globalDropBoost = 1.5   * 3.5;  // 5.25   — ancient artifact drop weight
-                        
-                        // Weighted roll across the full ARTIFACTS table
-                        const foundArtifact = this._rollSearchArtifact(artifactBonus, craftingBonus, globalDropBoost);
-                        
-                        if (foundArtifact) {
-                            this.processArtifactFind(foundArtifact, planet.name);
-                            if (artifactBonus > 1.0) {
-                                const bonusPercent = Math.round((artifactBonus - 1) * 100);
-                                this.showNotification(`✨ ${planet.type} planet bonus: +${bonusPercent}% artifact chance!`);
-                            }
-                        } else {
-                            this.showNotification(`❌ No artifact found on ${planet.name}. Try another planet.`);
-                        }
-                        
+                        // 1 item/event per planet, 50% chance of nothing
+                        this._resolveSearchFinds(planet.name, { rolls: 1 });
                         this.renderOwnedPlanets();
                         this.saveGameState();
                     }
@@ -22007,11 +22151,37 @@ const SHIP_IMAGE_DATA = {
                 return entries[entries.length - 1].artifact;
             }
 
+            /**
+             * Planet search: 1 roll. Cluster search: 3 rolls.
+             * Each roll has a flat 50% chance of finding nothing.
+             */
+            _resolveSearchFinds(sourceName, { rolls = 1 } = {}) {
+                const finds = [];
+                const n = Math.max(1, Math.floor(Number(rolls) || 1));
+                for (let i = 0; i < n; i++) {
+                    if (Math.random() < 0.5) continue;
+                    // No inflated global drop boosts — rarity weights only
+                    const art = this._rollSearchArtifact(1, 1, 1);
+                    if (art) finds.push(art);
+                }
+                if (!finds.length) {
+                    this.showNotification(`❌ Nothing found on ${sourceName}.`);
+                    return finds;
+                }
+                finds.forEach((art) => this.processArtifactFind(art, sourceName));
+                if (finds.length > 1) {
+                    this.showNotification(`✨ Found ${finds.length} items in ${sourceName}!`);
+                }
+                return finds;
+            }
+
             async processArtifactFind(artifact, planetName) {
                 // Show image popup modal
                 this.showArtifactModal(artifact, planetName);
                 
                 if (!this.inventory) this.inventory = [];
+                let addedItem = null;
+                let grantQty = 1;
                 if (artifact.type === 'instant') {
                     // Apply instant effects / planet events
                     if (artifact.effect === 'researchPoints') {
@@ -22028,28 +22198,33 @@ const SHIP_IMAGE_DATA = {
                     if (this.updateResources) this.updateResources();
                     else if (this.updateDisplay) this.updateDisplay();
                 } else if (artifact.type === 'audio') {
-                    this.inventory.push({
-                        id: Date.now(),
+                    addedItem = {
+                        id: Date.now().toString() + Math.random().toString(36).slice(2),
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
                         planetName: planetName,
                         type: 'audio',
-                        effect: 'audio'
-                    });
+                        effect: 'audio',
+                        quantity: 1,
+                        stackable: false
+                    };
+                    this.inventory.push(addedItem);
                     this.showNotification('🎵 Ancient Audio Disc added to Inventory! Use it to unlock a track.');
                 } else if (artifact.type === 'crafting') {
-                    // Stack crafting materials in inventory
-                    this.addInventoryItem({
+                    // Stack crafting materials in inventory (returns the stack row)
+                    addedItem = this.addInventoryItem({
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
                         planetName: planetName,
+                        source: 'search',
                         type: 'crafting',
                         quantity: 1
                     });
+                    grantQty = 1; // server grant is a delta, never the full stack size
                     
                     // Special handling for Ancient Artifact Fragments
                     if (artifact.id === 'fragment') {
@@ -22065,15 +22240,18 @@ const SHIP_IMAGE_DATA = {
                     }
                 } else if (artifact.type === 'permanent') {
                     // Add to inventory for permanent bonuses
-                    this.inventory.push({
-                        id: Date.now(),
+                    addedItem = {
+                        id: Date.now().toString() + Math.random().toString(36).slice(2),
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
                         planetName: planetName,
-                        applied: false
-                    });
+                        applied: false,
+                        quantity: 1,
+                        stackable: false
+                    };
+                    this.inventory.push(addedItem);
                     // Apply bonuses
                     if (artifact.bonuses) {
                         if (artifact.bonuses.food) {
@@ -22085,48 +22263,57 @@ const SHIP_IMAGE_DATA = {
                     }
                     this.showNotification(`✨ Permanent bonuses applied! Check Inventory.`);
                 } else if (artifact.type === 'schematic') {
-                    this.inventory.push({
-                        id: Date.now(),
+                    addedItem = {
+                        id: Date.now().toString() + Math.random().toString(36).slice(2),
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
                         planetName: planetName,
-                        type: 'schematic'
-                    });
+                        type: 'schematic',
+                        quantity: 1,
+                        stackable: false
+                    };
+                    this.inventory.push(addedItem);
                     this.showNotification(`📜 Schematic acquired: ${artifact.name}! Check Inventory / Crafting.`);
                 } else if (artifact.type === 'collectible') {
-                    // Add to inventory
-                    this.inventory.push({
-                        id: Date.now(),
+                    // Stack collectibles the same way as crafting mats when possible
+                    addedItem = this.addInventoryItem({
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
-                        planetName: planetName
+                        planetName: planetName,
+                        source: 'search',
+                        type: 'collectible',
+                        quantity: 1
                     });
+                    grantQty = 1;
                     
-                    const fragmentCount = this.inventory.filter(i => i.artifactId === 'fragment').length;
-                    this.showNotification(`💎 Fragment collected! (${fragmentCount}/3 for the Ultimate Weapon)`);
+                    const fragmentCount = this.getInventoryCount(artifact.id);
+                    this.showNotification(`💎 ${artifact.name} collected! (×${fragmentCount})`);
                     
-                    if (fragmentCount >= 3) {
+                    if (artifact.id === 'fragment' && fragmentCount >= 3) {
                         this.showNotification(`☠️ You have 3 fragments! The Ultimate Weapon craft is now possible (10-day forge)!`);
                     }
                 } else {
                     // Fallback — never silently drop unknown artifact types
-                    this.inventory.push({
-                        id: Date.now(),
+                    addedItem = this.addInventoryItem({
                         artifactId: artifact.id,
                         name: artifact.name,
                         icon: artifact.icon,
                         foundAt: new Date().toISOString(),
                         planetName: planetName,
-                        type: artifact.type || 'unknown'
+                        source: 'search',
+                        type: artifact.type || 'unknown',
+                        quantity: 1
                     });
+                    grantQty = 1;
                     this.showNotification(`✨ Found: ${artifact.name}!`);
                 }
 
-                // Persist loot on the server (PUT /state cannot invent inventory)
+                // Persist loot on the server (PUT /state cannot invent inventory).
+                // Always grant the delta (+1), never the full local stack size.
                 if (window.MP && window.MP.token && typeof serverEconomyGrant === 'function') {
                     const grant = { reason: 'search', resources: {}, inventoryAdd: [] };
                     if (artifact.type === 'instant') {
@@ -22135,21 +22322,26 @@ const SHIP_IMAGE_DATA = {
                         } else if (artifact.effect === 'food') {
                             grant.resources.food = Math.max(0, artifact.value || 0);
                         }
-                    } else {
-                        const last = (this.inventory || [])[(this.inventory || []).length - 1];
-                        if (last && last.artifactId === artifact.id) {
-                            grant.inventoryAdd.push({
-                                id: last.id,
-                                artifactId: last.artifactId,
-                                quantity: Math.max(1, Number(last.quantity) || 1),
-                                source: 'search',
-                                planetName: planetName,
-                            });
-                        }
+                    } else if (addedItem && addedItem.artifactId) {
+                        grant.inventoryAdd.push({
+                            artifactId: addedItem.artifactId,
+                            quantity: Math.max(1, grantQty),
+                            source: 'search',
+                            planetName: planetName,
+                            stackable: addedItem.stackable !== false && (artifact.type === 'crafting' || artifact.type === 'collectible' || !artifact.type),
+                        });
                     }
                     if ((grant.inventoryAdd && grant.inventoryAdd.length) ||
                         Object.values(grant.resources).some((v) => v > 0)) {
-                        serverEconomyGrant(grant).catch(() => {});
+                        serverEconomyGrant(grant).then((res) => {
+                            if (res && res.ok !== false && typeof applyServerEconomyState === 'function') {
+                                // Keep server wallet, but re-compact stacks client-side for display
+                                if (typeof this.compactInventoryStacks === 'function') this.compactInventoryStacks();
+                                if (typeof this.renderInventory === 'function' && document.getElementById('inventoryModal')?.style.display === 'block') {
+                                    this.renderInventory();
+                                }
+                            }
+                        }).catch(() => {});
                     }
                 }
             }
@@ -24478,14 +24670,20 @@ const SHIP_IMAGE_DATA = {
                     this.resources.credits -= ship.creditCost;
                     this.resources.metal -= ship.metalCost;
                     
+                    const shipResearchSecs = ship.time * 60;
+                    const shipRate = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
+                    const shipNow = Date.now();
                     this.researchQueue.push({
                         name: ship.name,
                         icon: ship.icon,
-                        timeRemaining: ship.time * 60, // Convert to seconds
-                        totalTime: ship.time * 60,
+                        timeRemaining: shipResearchSecs,
+                        totalTime: shipResearchSecs,
                         damage: ship.damage,
-                        hitPoints: ship.hitPoints
+                        hitPoints: ship.hitPoints,
+                        startedAt: shipNow,
+                        endsAt: shipNow + (shipResearchSecs / shipRate) * 1000
                     });
+                    this._researchCaughtUpAt = shipNow;
                     
                     // [removed debug log]
                     
@@ -24500,11 +24698,25 @@ const SHIP_IMAGE_DATA = {
             
             updateResearch() {
               try {
+                // Wall-clock catch-up: continues correctly after tab sleep, browser close, or login.
+                const now = Date.now();
+                const last = this._researchCaughtUpAt || now;
+                let elapsedSec = Math.max(0, (now - last) / 1000);
+                this._researchCaughtUpAt = now;
+                if (elapsedSec > 30 * 24 * 3600) elapsedSec = 30 * 24 * 3600;
+
                 // Process ship research queue (do not early-return — tech queue must still tick)
-                if (this.researchQueue && this.researchQueue.length > 0) {
-                    const shipResearchTick = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
+                if (elapsedSec > 0 && this.researchQueue && this.researchQueue.length > 0) {
+                    const shipRate = this.hasRaceTech('shipwright_trance') ? 1.25 : 1.0;
                     this.researchQueue = this.researchQueue.map(research => {
-                        research.timeRemaining -= shipResearchTick;
+                        if (research.endsAt) {
+                            research.timeRemaining = (research.endsAt - now) / 1000;
+                        } else {
+                            research.timeRemaining = (Number(research.timeRemaining) || 0) - elapsedSec * shipRate;
+                            if (research.totalTime) {
+                                research.endsAt = now + (Math.max(0, research.timeRemaining) / shipRate) * 1000;
+                            }
+                        }
                         
                         if (research.timeRemaining <= 0) {
                             // Mark ship as researched
@@ -24523,22 +24735,32 @@ const SHIP_IMAGE_DATA = {
                     }).filter(r => r !== null);
                 }
                 
-                // Process technology research queue
-                if (this.techResearchQueue && this.techResearchQueue.length > 0) {
-                    const currentTech = this.techResearchQueue[0];
-                    const tech = this.technologies[currentTech.id];
-                    if (tech) {
+                // Process technology research queue (sequential; burn full offline budget)
+                if (elapsedSec > 0 && this.techResearchQueue && this.techResearchQueue.length > 0) {
+                    const techRate = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
+                    let budget = elapsedSec * techRate;
+                    while (this.techResearchQueue.length > 0 && budget > 0) {
+                        const currentTech = this.techResearchQueue[0];
+                        const tech = this.technologies[currentTech.id];
+                        if (!tech) {
+                            this.techResearchQueue.shift();
+                            continue;
+                        }
                         tech.researching = true;
-                        const techTick = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
-                        currentTech.progress = (currentTech.progress || 0) + techTick;
-                        tech.progress = currentTech.progress;
-                        
-                        if (currentTech.progress >= currentTech.time) {
+                        const need = Math.max(0, (Number(currentTech.time) || 0) - (Number(currentTech.progress) || 0));
+                        if (budget >= need) {
+                            budget -= need;
+                            currentTech.progress = Number(currentTech.time) || 0;
+                            tech.progress = currentTech.progress;
                             this.completeTechResearch(currentTech.id);
-                        } else if (document.getElementById('techTreeModal')?.style.display === 'block') {
-                            // Keep progress bar live while the modal is open
-                            this.renderTechTree();
-                            this.renderTechBonuses();
+                        } else {
+                            currentTech.progress = (Number(currentTech.progress) || 0) + budget;
+                            tech.progress = currentTech.progress;
+                            budget = 0;
+                            if (document.getElementById('techTreeModal')?.style.display === 'block') {
+                                this.renderTechTree();
+                                this.renderTechBonuses();
+                            }
                         }
                     }
                 }
@@ -25015,12 +25237,15 @@ const SHIP_IMAGE_DATA = {
                     let buildTime = Math.ceil((ship.creditCost / 10) * quantity * timeMult);
                     if (this.hasRaceTech('jury_rigging')) buildTime = Math.floor(buildTime * 0.6);
                     
+                    const buildNow = Date.now();
                     this.buildQueue.push({
                         shipName: ship.name,
                         icon: ship.icon,
                         quantity: quantity,
                         timeRemaining: buildTime,
-                        totalTime: buildTime
+                        totalTime: buildTime,
+                        startedAt: buildNow,
+                        endsAt: buildNow + buildTime * 1000
                     });
                     
                     this.updateResources();
@@ -25074,6 +25299,7 @@ const SHIP_IMAGE_DATA = {
                     let buildTime = Math.floor(ship.time * quantity * timeMult);
                     if (this.hasRaceTech('jury_rigging')) buildTime = Math.floor(buildTime * 0.6);
                     
+                    const buildNow = Date.now();
                     this.buildQueue.push({
                         shipName: ship.name,
                         icon: ship.icon,
@@ -25081,7 +25307,9 @@ const SHIP_IMAGE_DATA = {
                         timeRemaining: buildTime,
                         totalTime: buildTime,
                         isSpecial: true,
-                        specialShipData: ship
+                        specialShipData: ship,
+                        startedAt: buildNow,
+                        endsAt: buildNow + buildTime * 1000
                     });
                     
                     this.updateResources();
@@ -25306,10 +25534,24 @@ const SHIP_IMAGE_DATA = {
 
             updateBuildQueue() {
               try {
-                if (this.buildQueue.length === 0) return;
+                if (!this.buildQueue || this.buildQueue.length === 0) return;
+
+                const now = Date.now();
+                // Own watermark (not research's) so the shared 2s tick does not zero elapsed.
+                const last = (this._buildCaughtUpAt != null) ? this._buildCaughtUpAt : now;
+                let elapsedSec = Math.max(0, (now - last) / 1000);
+                if (elapsedSec > 30 * 24 * 3600) elapsedSec = 30 * 24 * 3600;
+                this._buildCaughtUpAt = now;
                 
                 this.buildQueue = this.buildQueue.map(build => {
-                    build.timeRemaining -= 1;
+                    if (build.endsAt) {
+                        build.timeRemaining = (build.endsAt - now) / 1000;
+                    } else {
+                        build.timeRemaining = (Number(build.timeRemaining) || 0) - elapsedSec;
+                        if (build.totalTime) {
+                            build.endsAt = now + Math.max(0, build.timeRemaining) * 1000;
+                        }
+                    }
                     
                     if (build.timeRemaining <= 0) {
                         // Build complete
@@ -26297,8 +26539,9 @@ const SHIP_IMAGE_DATA = {
                 if (typeof this.renderTechBonuses === 'function') this.renderTechBonuses();
             }
             
-            // Coin Pack Methods
+            // Coin Pack Methods (PayPal checkout links)
             openCoinPacks() {
+                this.renderCoinPacks();
                 const panel = document.getElementById('coinPacksPanel');
                 if (panel) {
                     panel.style.display = 'flex';
@@ -26310,6 +26553,207 @@ const SHIP_IMAGE_DATA = {
                 if (panel) {
                     panel.style.display = 'none';
                 }
+            }
+
+            getHorizonCoinStoreConfig() {
+                // Override at runtime via window.FU_PAYPAL_CONFIG if needed.
+                const defaults = {
+                    // Set ONE of these before going live:
+                    // paypalMe: 'YourPayPalMeHandle',
+                    // businessEmail: 'payments@yourdomain.com',
+                    paypalMe: (window.FU_PAYPAL_CONFIG && window.FU_PAYPAL_CONFIG.paypalMe) || '',
+                    businessEmail: (window.FU_PAYPAL_CONFIG && window.FU_PAYPAL_CONFIG.businessEmail) || '',
+                    currency: 'USD',
+                    packs: [
+                        { id: 'small', name: 'Small Pack', icon: '💎', coins: 100, price: 3.99 },
+                        { id: 'medium', name: 'Medium Pack', icon: '💎💎', coins: 300, price: 5.99 },
+                        { id: 'large', name: 'Large Pack', icon: '💎💎💎', coins: 500, price: 8.99 },
+                        { id: 'mega', name: 'Mega Pack', icon: '💎💎💎💎', coins: 1000, price: 14.99 },
+                        { id: 'super', name: 'Super Mega Pack', icon: '💎💎💎💎💎', coins: 1500, price: 19.99 },
+                    ],
+                };
+                const cfg = Object.assign({}, defaults, window.FU_PAYPAL_CONFIG || {});
+                if (Array.isArray(window.FU_PAYPAL_CONFIG?.packs) && window.FU_PAYPAL_CONFIG.packs.length) {
+                    cfg.packs = window.FU_PAYPAL_CONFIG.packs;
+                }
+                return cfg;
+            }
+
+            buildPayPalCheckoutUrl(pack) {
+                const cfg = this.getHorizonCoinStoreConfig();
+                if (pack && pack.checkoutUrl) return String(pack.checkoutUrl);
+
+                const username = (this.playerData && this.playerData.username)
+                    || (window.MP && window.MP.player && window.MP.player.username)
+                    || '';
+                const amount = Number(pack.price).toFixed(2);
+                const itemName = `FU3 ${pack.name} (${Number(pack.coins).toLocaleString()} Horizon Coins)`;
+                const custom = [
+                    username ? `user:${username}` : null,
+                    `pack:${pack.id}`,
+                    `hc:${pack.coins}`,
+                ].filter(Boolean).join('|');
+
+                // Hosted / full URL override wins; else classic _xclick (best for item + custom note);
+                // else PayPal.me amount link.
+                if (cfg.businessEmail) {
+                    const params = new URLSearchParams({
+                        cmd: '_xclick',
+                        business: String(cfg.businessEmail).trim(),
+                        currency_code: cfg.currency || 'USD',
+                        amount,
+                        item_name: itemName,
+                        item_number: `fu3_hc_${pack.id}`,
+                        no_shipping: '1',
+                        no_note: '0',
+                        cn: 'Enter your exact in-game username',
+                        custom,
+                    });
+                    if (username) params.set('on0', 'In-game username');
+                    if (username) params.set('os0', username);
+                    return `https://www.paypal.com/cgi-bin/webscr?${params.toString()}`;
+                }
+
+                const handle = String(cfg.paypalMe || '').replace(/^@/, '').trim();
+                if (handle) {
+                    // PayPal.me does not always carry custom metadata — username still shown in footnote.
+                    return `https://www.paypal.com/paypalme/${encodeURIComponent(handle)}/${amount}${cfg.currency || 'USD'}`;
+                }
+                return null;
+            }
+
+            renderCoinPacks() {
+                const grid = document.getElementById('coinPacksGrid');
+                if (!grid) return;
+                const cfg = this.getHorizonCoinStoreConfig();
+                const configured = !!(cfg.businessEmail || cfg.paypalMe || (cfg.packs || []).some(p => p && p.checkoutUrl));
+                grid.innerHTML = (cfg.packs || []).map((pack) => {
+                    const priceLabel = `$${Number(pack.price).toFixed(2)} ${cfg.currency || 'USD'}`;
+                    const coinsLabel = `${Number(pack.coins).toLocaleString()} Coins`;
+                    return `
+                        <div class="gacha-pack" data-pack-id="${pack.id}">
+                            <div class="gacha-pack-icon">${pack.icon || '💎'}</div>
+                            <div class="gacha-pack-name">${pack.name}</div>
+                            <div class="gacha-pack-coins">${coinsLabel}</div>
+                            <div class="gacha-pack-price">${priceLabel}</div>
+                            <button type="button" class="paypal-buy-btn"
+                                onclick="event.stopPropagation(); window.game.buyHorizonCoinPack('${pack.id}')">
+                                <span>PayPal</span>
+                                <span>Buy ${priceLabel}</span>
+                            </button>
+                        </div>`;
+                }).join('');
+
+                const note = document.getElementById('coinPacksFootnote');
+                if (note) {
+                    const user = (this.playerData && this.playerData.username) || '';
+                    const online = !!(window.MP && window.MP.token);
+                    note.innerHTML = configured
+                        ? (online
+                            ? `Secure checkout opens in PayPal.${user ? ` Buying as <strong style="color:var(--text-primary);">${user}</strong>.` : ''} Horizon Coins credit <strong style="color:var(--text-primary);">automatically</strong> when PayPal approves the payment.`
+                            : `Log in online to buy with automatic Horizon Coin credit.`)
+                        : `<strong style="color:#ff6688;">PayPal is not configured yet.</strong> Set <code>window.FU_PAYPAL_CONFIG.businessEmail</code>, then reload.`;
+                }
+            }
+
+            async buyHorizonCoinPack(packId) {
+                const cfg = this.getHorizonCoinStoreConfig();
+                const pack = (cfg.packs || []).find(p => p && p.id === packId);
+                if (!pack) {
+                    this.showNotification('⚠️ Unknown coin pack.');
+                    return;
+                }
+
+                // Preferred: server intent → PayPal IPN auto-grants HC on approval.
+                if (window.MP && window.MP.token && typeof window.MP.createPayPalIntent === 'function') {
+                    try {
+                        const intent = await window.MP.createPayPalIntent(pack.id);
+                        if (!intent || !intent.checkoutUrl) {
+                            throw new Error(intent?.error || 'Checkout unavailable');
+                        }
+                        this._pendingPayPalIntentId = intent.intentId;
+                        try {
+                            localStorage.setItem('fu_paypal_intent', intent.intentId);
+                        } catch (e) {}
+                        try {
+                            window.open(intent.checkoutUrl, '_blank', 'noopener,noreferrer');
+                        } catch (e) {
+                            window.location.href = intent.checkoutUrl;
+                            return;
+                        }
+                        this.showNotification(`💎 PayPal opened for ${pack.name}. Coins credit automatically after payment clears.`);
+                        this._pollPayPalIntent(intent.intentId, pack);
+                        if (window.chatManager) {
+                            chatManager.addMessage('SYSTEM', `PayPal checkout started: ${pack.name} (${Number(pack.coins).toLocaleString()} HC). Coins will appear automatically when PayPal confirms payment.`, 'system');
+                        }
+                        return;
+                    } catch (e) {
+                        console.warn('[paypal] intent failed, falling back to static link', e);
+                        this.showNotification('⚠️ Could not start secure checkout: ' + (e.message || e));
+                    }
+                }
+
+                // Offline / no MP session: open static PayPal link (manual credit may still be needed).
+                const url = this.buildPayPalCheckoutUrl(pack);
+                if (!url) {
+                    alert('Log in online to buy Horizon Coins. PayPal auto-credit requires a multiplayer session.');
+                    return;
+                }
+                try {
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                } catch (e) {
+                    window.location.href = url;
+                }
+                this.showNotification(`💎 PayPal opened for ${pack.name}. Log in online next time for automatic credit.`);
+            }
+
+            async _pollPayPalIntent(intentId, pack) {
+                if (!window.MP || !window.MP.token || !intentId) return;
+                const maxAttempts = 40;
+                for (let i = 0; i < maxAttempts; i++) {
+                    await new Promise((r) => setTimeout(r, 3000));
+                    try {
+                        const res = await window.MP.getPayPalIntent(intentId);
+                        if (res && res.intent && res.intent.status === 'paid') {
+                            if (typeof applyServerEconomyState === 'function') {
+                                applyServerEconomyState(res, { skipSave: true });
+                            } else if (res.horizonCoins != null) {
+                                this.horizonCoins = res.horizonCoins;
+                                this.updateResources && this.updateResources();
+                            }
+                            this.showNotification(`✅ Payment received! +${Number(pack?.coins || res.intent.coins || 0).toLocaleString()} Horizon Coins credited.`);
+                            try { localStorage.removeItem('fu_paypal_intent'); } catch (e) {}
+                            this._pendingPayPalIntentId = null;
+                            if (window.chatManager) {
+                                chatManager.addMessage('SYSTEM', `PayPal purchase complete — Horizon Coins credited.`, 'system');
+                            }
+                            return;
+                        }
+                    } catch (e) {
+                        // keep polling
+                    }
+                }
+            }
+
+            /** After PayPal return (?paypal=success&intent=…) or page reload mid-purchase. */
+            resumePayPalPurchaseIfNeeded() {
+                try {
+                    const params = new URLSearchParams(window.location.search || '');
+                    let intentId = params.get('intent') || this._pendingPayPalIntentId;
+                    if (!intentId) {
+                        try { intentId = localStorage.getItem('fu_paypal_intent'); } catch (e) {}
+                    }
+                    if (params.get('paypal') === 'success' || intentId) {
+                        if (intentId) this._pollPayPalIntent(intentId, null);
+                    }
+                    if (params.get('paypal')) {
+                        // Clean query so refresh doesn't re-trigger UI noise
+                        const url = new URL(window.location.href);
+                        url.searchParams.delete('paypal');
+                        url.searchParams.delete('intent');
+                        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+                    }
+                } catch (e) {}
             }
             
             
@@ -27333,46 +27777,18 @@ const SHIP_IMAGE_DATA = {
                 }, 30000);
             }
 
-            // Resolve a planet artifact search — uses the full ARTIFACTS roll system
+            // Resolve a planet artifact search — 1 roll, 50% nothing
             _resolveArtifactSearch(planet) {
                 if (!planet) return;
                 delete this.artifactSearches[planet.id];
-
-                // Same bonus logic as searchForArtifact
-                let artifactBonus = 1.0;
-                if (planet.type === 'Barren' || planet.type === 'Ice' || planet.type === 'Forest') {
-                    artifactBonus = 1.20;
-                } else {
-                    artifactBonus = 1.10;
-                }
-
-                const craftingBonus  = 1.875 * 3.5;
-                const globalDropBoost = 1.5  * 3.5;
-                const foundArtifact = this._rollSearchArtifact(artifactBonus, craftingBonus, globalDropBoost);
-
-                if (foundArtifact) {
-                    this.processArtifactFind(foundArtifact, planet.name);
-                } else {
-                    this.showNotification(`❌ Nothing found on ${planet.name}.`);
-                }
+                this._resolveSearchFinds(planet.name, { rolls: 1 });
             }
 
-            // Resolve a cluster artifact search — uses the same ARTIFACTS roll + tier bonus
+            // Resolve a cluster artifact search — 3 rolls, each 50% nothing
             _resolveClusterSearch(cluster) {
                 if (!cluster) return;
                 delete this.artifactSearches[`cluster_${cluster.id}`];
-
-                const tierDropBonus  = { 1:1.10, 2:1.20, 3:1.45, 4:1.60, 5:1.75 };
-                const tierBoost      = tierDropBonus[cluster.tier] || 1.0;
-                const craftingBonus  = 1.875 * 3.5 * tierBoost;
-                const globalDropBoost = 1.5  * 3.5 * tierBoost;
-                const foundArtifact = this._rollSearchArtifact(1.0, craftingBonus, globalDropBoost);
-
-                if (foundArtifact) {
-                    this.processArtifactFind(foundArtifact, cluster.name);
-                } else {
-                    this.showNotification(`❌ Nothing found in ${cluster.name}.`);
-                }
+                this._resolveSearchFinds(cluster.name, { rolls: 3 });
             }
 
             // _grantArtifactDrop retained as a fallback for non-ARTIFACTS environments
@@ -27551,11 +27967,19 @@ const SHIP_IMAGE_DATA = {
                 tech.researching = true;
                 tech.progress = 0;
                 if (!this.techResearchQueue) this.techResearchQueue = [];
+                const techRate = this.hasRaceTech('chronal_focus') ? 1.30 : 1.0;
+                const techNow = Date.now();
+                const techSecs = Number(tech.time) || 0;
                 this.techResearchQueue.push({
                     id: techId,
                     progress: 0,
-                    time: tech.time
+                    time: tech.time,
+                    name: tech.name,
+                    effects: Array.isArray(tech.effects) ? tech.effects.map(e => ({ ...e })) : [],
+                    startedAt: techNow,
+                    endsAt: techNow + (techSecs / techRate) * 1000
                 });
+                this._researchCaughtUpAt = techNow;
                 
                 this._researchDomNeedsEmpty = true;
                 this.showNotification(`🔬 Research Started: ${tech.name}`);
@@ -27750,7 +28174,8 @@ const SHIP_IMAGE_DATA = {
 
             isStackableArtifact(artifactId) {
                 const def = (typeof ARTIFACTS !== 'undefined') ? ARTIFACTS[artifactId] : null;
-                return !!(def && def.type === 'crafting');
+                if (!def) return true; // unknown ids still merge by artifactId
+                return def.type === 'crafting' || def.type === 'collectible';
             }
 
             getInventoryCount(artifactId) {
@@ -32768,37 +33193,9 @@ window.playAsGuest = function() {
                 <h2 class="coin-packs-title">💎 Horizon Coin Packs</h2>
                 <button onclick="if(window.game) window.game.closeCoinPacks()" style="background: #ff3366; border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 700;">CLOSE</button>
             </div>
-            <div class="gacha-pack-container">
-                <div class="gacha-pack" onclick="alert('PayPal integration coming soon!\n\nSmall Pack: 100 Horizon Coins\nPrice: $3.99 USD')">
-                    <div class="gacha-pack-icon">💎</div>
-                    <div class="gacha-pack-name">Small Pack</div>
-                    <div class="gacha-pack-coins">100 Coins</div>
-                    <div class="gacha-pack-price">$3.99 USD</div>
-                </div>
-                <div class="gacha-pack" onclick="alert('PayPal integration coming soon!\n\nMedium Pack: 300 Horizon Coins\nPrice: $5.99 USD')">
-                    <div class="gacha-pack-icon">💎💎</div>
-                    <div class="gacha-pack-name">Medium Pack</div>
-                    <div class="gacha-pack-coins">300 Coins</div>
-                    <div class="gacha-pack-price">$5.99 USD</div>
-                </div>
-                <div class="gacha-pack" onclick="alert('PayPal integration coming soon!\n\nLarge Pack: 500 Horizon Coins\nPrice: $8.99 USD')">
-                    <div class="gacha-pack-icon">💎💎💎</div>
-                    <div class="gacha-pack-name">Large Pack</div>
-                    <div class="gacha-pack-coins">500 Coins</div>
-                    <div class="gacha-pack-price">$8.99 USD</div>
-                </div>
-                <div class="gacha-pack" onclick="alert('PayPal integration coming soon!\n\nMega Pack: 1,000 Horizon Coins\nPrice: $14.99 USD')">
-                    <div class="gacha-pack-icon">💎💎💎💎</div>
-                    <div class="gacha-pack-name">Mega Pack</div>
-                    <div class="gacha-pack-coins">1,000 Coins</div>
-                    <div class="gacha-pack-price">$14.99 USD</div>
-                </div>
-                <div class="gacha-pack" onclick="alert('PayPal integration coming soon!\n\nSuper Mega Pack: 1,500 Horizon Coins\nPrice: $19.99 USD')">
-                    <div class="gacha-pack-icon">💎💎💎💎💎</div>
-                    <div class="gacha-pack-name">Super Mega Pack</div>
-                    <div class="gacha-pack-coins">1,500 Coins</div>
-                    <div class="gacha-pack-price">$19.99 USD</div>
-                </div>
+            <div id="coinPacksGrid" class="gacha-pack-container"></div>
+            <div class="coin-packs-footnote" id="coinPacksFootnote">
+                Secure checkout opens in PayPal. When payment is approved, Horizon Coins are credited to your logged-in empire automatically.
             </div>
         </div>
     </div>
@@ -34767,9 +35164,19 @@ window.tutorialManager = (() => {
                 return;
             }
 
-            // Consume materials immediately, begin timer
+            // Consume materials immediately, begin timer (snapshot result so server can finish offline)
             await consumeIngredients(recipe);
-            craftingQueue.push({ recipeId, startTime: Date.now(), duration: recipe.craftTime * 1000 });
+            const craftStart = Date.now();
+            const craftDuration = (Number(recipe.craftTime) || 0) * 1000;
+            craftingQueue.push({
+                recipeId,
+                name: recipe.name,
+                startTime: craftStart,
+                duration: craftDuration,
+                endsAt: craftStart + craftDuration,
+                repeatable: !!recipe.repeatable,
+                result: recipe.result ? JSON.parse(JSON.stringify(recipe.result)) : null,
+            });
             saveState();
             startQueueTimer();
             window.game.showNotification(`⚗️ Crafting ${recipe.name}... (${recipe.craftTime}s)`);
