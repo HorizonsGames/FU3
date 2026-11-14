@@ -7166,11 +7166,9 @@
         // every MP call below is wrapped so a missing/offline backend never
         // breaks local play, it just silently stays in local-only mode.
         const MP_CONFIG = {
-            // Defaults to same-origin: server.js serves this exact file alongside
-            // the API/WebSocket from one Heroku app, so once deployed there, the
-            // game automatically talks to its own backend — no URL to fill in.
-            // Falls back to disabled (local-only play) when opened as a bare
-            // file:// page or anywhere else with no real HTTP origin to call.
+            // When the game is served by the Node backend (Heroku app or local
+            // `npm start`), use same-origin. When it's on Netlify (static host),
+            // call the dedicated Heroku API/WebSocket backend instead.
             // Override for testing via: localStorage.setItem('fu_mp_server_override', 'https://...')
             serverUrl: (function () {
                 try {
@@ -7178,7 +7176,11 @@
                     if (override) return override;
                 } catch (e) { /* localStorage unavailable (e.g. private browsing) — ignore */ }
                 if (!window.location || !/^https?:$/.test(window.location.protocol)) return '';
-                return window.location.origin;
+                const host = window.location.hostname || '';
+                if (host === 'localhost' || host === '127.0.0.1' || /\.herokuapp\.com$/i.test(host)) {
+                    return window.location.origin;
+                }
+                return 'https://fractured-universe-backend-b6676a2918d0.herokuapp.com';
             })(),
             get enabled() { return !!this.serverUrl; },
         };
