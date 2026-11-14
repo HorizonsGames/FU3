@@ -38,9 +38,12 @@ const worldRoutes = require('./src/routes/world');
 const marketRoutes = require('./src/routes/market');
 const chatRoutes = require('./src/routes/chat');
 const economyRoutes = require('./src/routes/economy');
+const paypalRoutes = require('./src/routes/paypal');
 const { createHub, broadcastGalaxy } = require('./src/ws/hub');
 
 process.env.ULTIMATE_CRAFT_MS = '50'; // short forge for smoke tests
+process.env.PAYPAL_IPN_VERIFY = 'skip';
+process.env.PAYPAL_BUSINESS_EMAIL = 'admin@horizonsgames.com';
 
 let pass = 0, fail = 0;
 function check(label, cond) {
@@ -60,6 +63,8 @@ async function main() {
     app.use('/api', marketRoutes);
     app.use('/api', chatRoutes);
     app.use('/api', economyRoutes);
+    app.use('/api/paypal/ipn', express.urlencoded({ extended: false }));
+    app.use('/api', paypalRoutes);
     const server = http.createServer(app);
     createHub(server);
     ultimate.setBroadcastGalaxy(broadcastGalaxy);
@@ -613,6 +618,56 @@ async function main() {
         check('expired temp bonuses pruned', !(afterOffline.state?.temporaryBonuses || []).some((b) => b.craftName === 'Old'));
     }
 
+    // ── PayPal IPN auto-grants Horizon Coin packs ──
+    {
+        const beforePay = await fetch(`${base}/api/economy`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        const hcBefore = beforePay.horizonCoins;
+
+        const intent = await fetch(`${base}/api/paypal/intent`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login1.token}` },
+            body: JSON.stringify({ packId: 'small' }),
+        }).then(async (r) => ({ status: r.status, body: await r.json() }));
+        check('paypal intent created', intent.status === 201 && !!intent.body.intentId);
+        check('paypal checkout url returned', typeof intent.body.checkoutUrl === 'string' && intent.body.checkoutUrl.includes('paypal.com'));
+
+        const form = new URLSearchParams({
+            payment_status: 'Completed',
+            txn_id: `SMOKE-TXN-${Date.now()}`,
+            receiver_email: 'admin@horizonsgames.com',
+            mc_currency: 'USD',
+            mc_gross: '3.99',
+            item_number: 'fu3_hc_small',
+            custom: `intent:${intent.body.intentId}|user:alice|pack:small|hc:100`,
+        });
+        const ipn = await fetch(`${base}/api/paypal/ipn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: form.toString(),
+        });
+        check('paypal IPN accepted', ipn.status === 200);
+
+        const afterPay = await fetch(`${base}/api/paypal/intent/${intent.body.intentId}`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check('paypal intent marked paid', afterPay.intent?.status === 'paid');
+        check('paypal granted +100 HC', afterPay.horizonCoins === hcBefore + 100);
+
+        // Duplicate IPN must not double-credit
+        const ipn2 = await fetch(`${base}/api/paypal/ipn`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: form.toString(),
+        });
+        check('duplicate IPN still 200', ipn2.status === 200);
+        const afterDup = await fetch(`${base}/api/economy`, {
+            headers: { Authorization: `Bearer ${login1.token}` },
+        }).then((r) => r.json());
+        check('duplicate IPN does not double-grant', afterDup.horizonCoins === hcBefore + 100);
+    }
+
     // Bob keeps HC via column (PUT can no longer invent HC)
     {
         const bobRow = await db.query('SELECT state FROM players WHERE username = $1', ['bob']);
@@ -628,6 +683,10 @@ async function main() {
         const msg = JSON.parse(raw.toString());
         if (msg.type === 'galaxy_wipe') sawWipe = true;
     });
+
+    const aliceHcBeforeWipe = await fetch(`${base}/api/economy`, {
+        headers: { Authorization: `Bearer ${login1.token}` },
+    }).then((r) => r.json()).then((j) => j.horizonCoins);
 
     const fire = await fetch(`${base}/api/ultimate/${craftId2}/fire`, {
         method: 'POST', headers: { Authorization: `Bearer ${login1.token}` },
@@ -645,7 +704,10 @@ async function main() {
     const aliceAfter = await fetch(`${base}/api/state`, {
         headers: { Authorization: `Bearer ${login1.token}` },
     }).then(r => r.json());
-    check('alice HC still preserved after wipe', aliceAfter.horizonCoins === aliceHcAfterGrant || aliceAfter.state?.horizonCoins === aliceHcAfterGrant);
+    check(
+        'alice HC still preserved after wipe',
+        aliceAfter.horizonCoins === aliceHcBeforeWipe || aliceAfter.state?.horizonCoins === aliceHcBeforeWipe
+    );
 
     wsThreat.close();
     server.close();

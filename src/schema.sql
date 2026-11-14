@@ -93,3 +93,21 @@ CREATE TABLE IF NOT EXISTS world_kv (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by  UUID REFERENCES players(id)
 );
+
+-- PayPal Horizon Coin purchases (intent → IPN → grant)
+CREATE TABLE IF NOT EXISTS paypal_intents (
+    id            UUID PRIMARY KEY,
+    player_id     UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+    username      TEXT NOT NULL,
+    pack_id       TEXT NOT NULL,
+    coins         INTEGER NOT NULL,
+    amount_cents  INTEGER NOT NULL,
+    currency      TEXT NOT NULL DEFAULT 'USD',
+    status        TEXT NOT NULL DEFAULT 'pending', -- pending|paid|failed|cancelled
+    txn_id        TEXT UNIQUE,
+    raw_ipn       JSONB,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    paid_at       TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_paypal_intents_player ON paypal_intents(player_id);
+CREATE INDEX IF NOT EXISTS idx_paypal_intents_status ON paypal_intents(status);

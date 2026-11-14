@@ -14,6 +14,7 @@ const worldRoutes = require('./src/routes/world');
 const marketRoutes = require('./src/routes/market');
 const chatRoutes = require('./src/routes/chat');
 const economyRoutes = require('./src/routes/economy');
+const paypalRoutes = require('./src/routes/paypal');
 const { createHub, broadcastGalaxy } = require('./src/ws/hub');
 
 const app = express();
@@ -29,6 +30,8 @@ app.use(cors({
     origin: allowedOrigins.length ? allowedOrigins : true, // allow all if unset (dev convenience — set this in production)
     credentials: true,
 }));
+// PayPal IPN posts application/x-www-form-urlencoded — must parse before the IPN route.
+app.use('/api/paypal/ipn', express.urlencoded({ extended: false }));
 app.use(express.json({ limit: '3mb' }));
 
 app.get('/health', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
@@ -42,6 +45,7 @@ app.use('/api', worldRoutes);
 app.use('/api', marketRoutes);
 app.use('/api', chatRoutes);
 app.use('/api', economyRoutes);
+app.use('/api', paypalRoutes);
 
 // Serve the game client (index.html, assets/, ship art, music, etc.) from this
 // same app/process/port — one Heroku deploy serves both the game and the API,

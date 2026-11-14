@@ -104,6 +104,15 @@ class MPClient {
         return this._post('/api/economy/grant', payload);
     }
 
+    // ── REST: PayPal Horizon Coin packs ───────────────────────────────
+    async createPayPalIntent(packId) {
+        return this._post('/api/paypal/intent', { packId });
+    }
+
+    async getPayPalIntent(intentId) {
+        return this._get(`/api/paypal/intent/${encodeURIComponent(intentId)}`);
+    }
+
     // ── REST: shared world blobs (read; fleet markers still writable) ─
     async getWorld(key) {
         return this._get(`/api/world/${encodeURIComponent(key)}`);

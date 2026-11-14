@@ -22,7 +22,7 @@ function normalizeResources(raw) {
 
 function normalizeInventory(raw) {
     if (!Array.isArray(raw)) return [];
-    return raw
+    const mapped = raw
         .filter((i) => i && typeof i === 'object' && i.artifactId)
         .map((i) => ({
             id: i.id != null ? String(i.id) : `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -31,8 +31,27 @@ function normalizeInventory(raw) {
             foundAt: i.foundAt || new Date().toISOString(),
             source: i.source || 'unknown',
             planetName: i.planetName || null,
-        }))
-        .slice(0, 500);
+            stackable: i.stackable,
+        }));
+    // Merge duplicate artifactId rows so crafting mats always stack on load.
+    const kept = [];
+    const stacks = new Map();
+    for (const item of mapped) {
+        if (item.stackable === false) {
+            kept.push(item);
+            continue;
+        }
+        const prev = stacks.get(item.artifactId);
+        if (prev) {
+            prev.quantity += item.quantity;
+            if (item.foundAt) prev.foundAt = item.foundAt;
+            if (item.planetName) prev.planetName = item.planetName;
+            if (item.source) prev.source = item.source;
+        } else {
+            stacks.set(item.artifactId, { ...item });
+        }
+    }
+    return kept.concat([...stacks.values()]).slice(0, 500);
 }
 
 function normalizeState(row) {
@@ -183,12 +202,17 @@ function addInventoryItem(inventory, item) {
     const artifactId = String(item.artifactId || '');
     if (!artifactId) return;
     const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
-    const stackable = item.stackable !== false && (item.source === 'crafting' || item.stack !== false);
+    // Default: stack identical artifactIds (crafting mats from search/craft/grants).
+    // Pass stackable:false for unique items (schematics, uniques, etc.).
+    const stackable = item.stackable !== false;
     if (stackable) {
-        const existing = inventory.find((i) => i.artifactId === artifactId);
+        const existing = inventory.find((i) => i.artifactId === artifactId && i.stackable !== false);
         if (existing) {
             existing.quantity = Math.max(1, (existing.quantity || 1) + qty);
-            return;
+            if (item.foundAt) existing.foundAt = item.foundAt;
+            if (item.planetName) existing.planetName = item.planetName;
+            if (item.source) existing.source = item.source;
+            return existing;
         }
     }
     inventory.push({
@@ -198,6 +222,7 @@ function addInventoryItem(inventory, item) {
         foundAt: item.foundAt || new Date().toISOString(),
         source: item.source || 'grant',
         planetName: item.planetName || null,
+        stackable: item.stackable,
     });
 }
 
