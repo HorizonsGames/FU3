@@ -5,14 +5,16 @@ const { getOnlinePlayers, getOnlinePlayerIdSet } = require('../ws/hub');
 
 const router = express.Router();
 
-function planetCountFromState(state) {
-    try {
-        const planets = state && typeof state === 'object' ? state.planets : null;
-        return Array.isArray(planets) ? planets.length : 0;
-    } catch {
-        return 0;
-    }
-}
+/** Planet count without loading the full JSONB state blob (avoids timeouts / huge payloads). */
+const PLANET_COUNT_SQL = `COALESCE(
+  jsonb_array_length(
+    CASE
+      WHEN jsonb_typeof(state->'planets') = 'array' THEN state->'planets'
+      ELSE '[]'::jsonb
+    END
+  ),
+  0
+)`;
 
 function normalizeAccountType(raw) {
     const t = String(raw || 'player').toLowerCase();
@@ -27,28 +29,28 @@ router.get('/admin/players', auth.requireAdmin, async (req, res) => {
     try {
         const { rows } = await db.query(
             `SELECT id, username, email, race, account_type, horizon_coins,
-                    created_at, last_login_at, state
+                    created_at, last_login_at,
+                    ${PLANET_COUNT_SQL} AS planet_count
              FROM players
              ORDER BY LOWER(username) ASC`
         );
         const onlineIds = getOnlinePlayerIdSet();
-        const players = rows.map((row) => {
-            const state = row.state && typeof row.state === 'object' ? row.state : {};
-            return {
-                id: row.id,
-                username: row.username,
-                email: row.email || '',
-                race: row.race || 'Unknown',
-                accountType: normalizeAccountType(row.account_type),
-                horizonCoins: Number(row.horizon_coins) || 0,
-                createdAt: row.created_at ? new Date(row.created_at).getTime() : null,
-                lastLogin: row.last_login_at ? new Date(row.last_login_at).getTime() : null,
-                online: onlineIds.has(String(row.id)),
-                planets: planetCountFromState(state),
-            };
-        });
+        const players = rows.map((row) => ({
+            id: row.id,
+            username: row.username,
+            email: row.email || '',
+            race: row.race || 'Unknown',
+            accountType: normalizeAccountType(row.account_type),
+            horizonCoins: Number(row.horizon_coins) || 0,
+            createdAt: row.created_at ? new Date(row.created_at).getTime() : null,
+            lastLogin: row.last_login_at ? new Date(row.last_login_at).getTime() : null,
+            online: onlineIds.has(String(row.id)),
+            planets: Number(row.planet_count) || 0,
+        }));
         res.json({
             players,
+            usernames: players.map((p) => p.username),
+            total: players.length,
             onlineCount: onlineIds.size,
             online: getOnlinePlayers(),
         });
@@ -62,7 +64,8 @@ router.get('/admin/players', auth.requireAdmin, async (req, res) => {
 router.get('/admin/stats', auth.requireAdmin, async (req, res) => {
     try {
         const { rows } = await db.query(
-            `SELECT id, username, account_type, last_login_at, state
+            `SELECT id, username, account_type, last_login_at,
+                    ${PLANET_COUNT_SQL} AS planet_count
              FROM players`
         );
         const onlineIds = getOnlinePlayerIdSet();
@@ -76,7 +79,7 @@ router.get('/admin/stats', auth.requireAdmin, async (req, res) => {
             typeCounts[type] = (typeCounts[type] || 0) + 1;
             const last = row.last_login_at ? new Date(row.last_login_at).getTime() : 0;
             if (last >= oneDayAgo) active24h += 1;
-            totalPlanets += planetCountFromState(row.state);
+            totalPlanets += Number(row.planet_count) || 0;
         });
 
         res.json({

@@ -10843,16 +10843,16 @@
                 if (this._activitiesStarted) return;
                 this._activitiesStarted = true;
 
-                // General bot chatter — 20% chance every 15s (~once per 75s on average)
+                // General bot chatter — reduced 65% from prior (was 20% / 15s → ~once per 75s)
                 this._chatInterval = setInterval(() => {
-                    if (Math.random() < 0.20) {
+                    if (Math.random() < 0.07) {
                         this.randomBotChat();
                     }
                 }, 15000);
 
-                // Dedicated player taunts — 15% chance every 45s (~once per 5 min)
+                // Dedicated player taunts — reduced 65% (was 15% / 45s)
                 this._tauntInterval = setInterval(() => {
-                    if (Math.random() < 0.15) {
+                    if (Math.random() < 0.0525) {
                         this.botTauntPlayer();
                     }
                 }, 45000);
@@ -11569,8 +11569,8 @@
                     chatManager.renderMessages();
                 }
 
-                // 90-second cooldown per bot
-                activeBot.chatCooldown = Date.now() + 90000;
+                // Per-bot cooldown — stretched ~65% longer so NPC chat stays quieter
+                activeBot.chatCooldown = Date.now() + 257000;
             }
 
             botTauntPlayer() {
@@ -32947,7 +32947,14 @@ const SHIP_IMAGE_DATA = {
                 playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">No players found</div>';
                 return;
             }
-            playerList.innerHTML = players.map(player => {
+            const nameRoster = players.map(p => String(p.username || '').replace(/</g, '&lt;')).filter(Boolean);
+            const rosterHtml = `
+                <div style="margin-bottom:14px;padding:12px;background:var(--bg-primary);border:1px solid var(--border-color);border-radius:8px;">
+                    <div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--text-secondary);margin-bottom:8px;">All accounts (${nameRoster.length})</div>
+                    <div style="font-size:13px;line-height:1.7;color:var(--text-primary);word-break:break-word;">${nameRoster.join(' · ')}</div>
+                </div>
+            `;
+            playerList.innerHTML = rosterHtml + players.map(player => {
                 const lastLogin = player.lastLogin ? new Date(player.lastLogin) : null;
                 const createdAt = player.createdAt ? new Date(player.createdAt) : null;
                 const accountType = player.accountType || 'Player';
@@ -33008,18 +33015,31 @@ const SHIP_IMAGE_DATA = {
                     window._adminPlayerCache = players;
                     _adminRenderPlayerCards(players);
                     if (meta) {
-                        meta.textContent = `${players.length} accounts · ${data.onlineCount || 0} online`;
+                        meta.textContent = `${players.length} accounts · ${data.onlineCount || 0} online (server)`;
                     }
                     return;
                 } catch (err) {
                     console.warn('[admin] server player list failed', err);
-                    if (meta) meta.textContent = 'Server list failed — showing local fallback';
+                    const errMsg = (err && err.message) ? err.message : 'unknown error';
+                    if (meta) meta.textContent = `Server list failed: ${errMsg}`;
+                    playerList.innerHTML = `
+                        <div style="color:#ff6b6b;text-align:center;padding:24px 16px;">
+                            <div style="font-weight:700;margin-bottom:8px;">Could not load server accounts</div>
+                            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">${String(errMsg).replace(/</g, '&lt;')}</div>
+                            <div style="font-size:12px;color:var(--text-secondary);">Trying local fallback…</div>
+                        </div>`;
                 }
+            } else if (meta) {
+                meta.textContent = !window.MP?.token
+                    ? 'Not logged into multiplayer — server roster unavailable'
+                    : 'Admin list API missing from client';
             }
 
             // Offline / local fallback (browser dbManager)
             if (!dbManager) {
-                playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">Log in online to view server accounts, or open a local session with dbManager.</div>';
+                if (!playerList.querySelector('.admin-player-card')) {
+                    playerList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 40px;">Log in online to view server accounts, or open a local session with dbManager.</div>';
+                }
                 return;
             }
             const players = Array.from(dbManager.players.values()).map(p => ({
@@ -33029,7 +33049,11 @@ const SHIP_IMAGE_DATA = {
             }));
             window._adminPlayerCache = players;
             _adminRenderPlayerCards(players);
-            if (meta) meta.textContent = `${players.length} local accounts (offline)`;
+            if (meta && !String(meta.textContent || '').includes('Server list failed')) {
+                meta.textContent = `${players.length} local accounts (offline)`;
+            } else if (meta) {
+                meta.textContent = `${meta.textContent} · local fallback ${players.length}`;
+            }
         }
         
         function filterPlayerList() {
