@@ -70,10 +70,34 @@ router.put('/state', auth.requireAuth, async (req, res) => {
     const existing = eco.normalizeState(req.player);
     const commandersMerged = offline.mergeCommanders(existing, state);
 
+    // Guard against a fresh/empty client save wiping a real cloud empire
+    // (common when loadState fails on another device and the client generates
+    // starter planets, or when an interrupted login never hydrated).
+    const clientPlanets = Array.isArray(state.planets) ? state.planets.length : 0;
+    const serverPlanets = Array.isArray(existing.planets) ? existing.planets.length : 0;
+    const clientShips = state.ships && typeof state.ships === 'object' ? Object.keys(state.ships).length : 0;
+    const serverShips = existing.ships && typeof existing.ships === 'object' ? Object.keys(existing.ships).length : 0;
+    const looksLikeWipe =
+        serverPlanets > 0 &&
+        (clientPlanets === 0 || (clientPlanets < Math.max(3, Math.floor(serverPlanets * 0.35)) && serverPlanets >= 5));
+
+    const empireFrom = looksLikeWipe ? existing : state;
+
     // Merge progress fields from client, but NEVER trust client economy wallets.
     // Commanders are revision-protected so a stale empty autosave cannot wipe them.
     const nextState = {
         ...state,
+        planets: empireFrom.planets,
+        ships: empireFrom.ships || state.ships,
+        fleets: empireFrom.fleets || state.fleets,
+        clusters: empireFrom.clusters || state.clusters,
+        researchQueue: looksLikeWipe ? (existing.researchQueue || state.researchQueue) : state.researchQueue,
+        techResearchQueue: looksLikeWipe ? (existing.techResearchQueue || state.techResearchQueue) : state.techResearchQueue,
+        technologies: looksLikeWipe ? (existing.technologies || state.technologies) : state.technologies,
+        unlockedRaceTechs: looksLikeWipe ? (existing.unlockedRaceTechs || state.unlockedRaceTechs) : state.unlockedRaceTechs,
+        raceTechFlags: looksLikeWipe ? (existing.raceTechFlags || state.raceTechFlags) : state.raceTechFlags,
+        homePlanetId: looksLikeWipe ? (existing.homePlanetId || state.homePlanetId) : state.homePlanetId,
+        buildQueue: looksLikeWipe ? (existing.buildQueue || state.buildQueue) : state.buildQueue,
         resources: existing.resources,
         inventory: existing.inventory,
         horizonCoins: existing.horizonCoins,
@@ -83,6 +107,16 @@ router.put('/state', auth.requireAuth, async (req, res) => {
         commanderAssignments: commandersMerged.commanderAssignments,
         commandersRev: commandersMerged.commandersRev,
     };
+
+    if (looksLikeWipe) {
+        console.warn('[state/put] rejected empty/low empire overwrite', {
+            playerId: req.player.id,
+            serverPlanets,
+            clientPlanets,
+            serverShips,
+            clientShips,
+        });
+    }
 
     if (!nextState.selectedRace && req.player.race) {
         nextState.selectedRace = { name: req.player.race };
