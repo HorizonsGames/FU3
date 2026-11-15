@@ -28131,7 +28131,12 @@ const SHIP_IMAGE_DATA = {
                 Object.values(this.ships).forEach(ship => {
                     if (ship.count > 0) {
                         // 1% of build cost per ship per hour
-                        const costPerShip = Math.ceil(ship.creditCost * 0.01);
+                        let costPerShip = Math.ceil(ship.creditCost * 0.01);
+                        // Rum Runner / Firehawk: −65% maintenance (pay 35% of base)
+                        const maintMult = (typeof ship.maintenanceMult === 'number')
+                            ? ship.maintenanceMult
+                            : (/rum\s*runner/i.test(ship.name || '') || /firehawk/i.test(ship.name || '') ? 0.35 : 1);
+                        if (maintMult !== 1) costPerShip = Math.max(1, Math.ceil(costPerShip * maintMult));
                         const totalCost = costPerShip * ship.count;
                         total += totalCost;
                         
@@ -31394,6 +31399,7 @@ const SHIP_IMAGE_DATA = {
                         he3Cost: 5000,
                         creditCost: 50000,
                         time: 90, // was 300s; −70% build time
+                        maintenanceMult: 0.35, // −65% maintenance
                         description: 'Legendary cargo freighter with devastating nuclear weapons and incredible durability. Built from ancient schematics.'
                     },
                     Firehawk: {
@@ -31410,6 +31416,7 @@ const SHIP_IMAGE_DATA = {
                         he3Cost: 1500,
                         creditCost: 10000,
                         time: 11, // was 35s; −70% build time
+                        maintenanceMult: 0.35, // −65% maintenance
                         allRaces: true,
                         description: 'Ancient Space Superiority Fighter of human origin. Swift as flame, stronger than star. An interceptor built for dominance — available to all races who unlock its schematics.'
                     }
