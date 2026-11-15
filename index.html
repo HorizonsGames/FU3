@@ -9235,9 +9235,10 @@
                     html += '<div class="assignment-list">';
                     
                     planetAssignments.forEach(([planetId, commanderKey]) => {
-                        const planet = this.game.planets.find(p => p.id === planetId);
-                        const [commanderId, stars] = commanderKey.split('_');
-                        const commander = this.game.commanders.find(c => c.id === commanderId && (c.stars || 1) == stars);
+                        const planet = this.game.planets.find(p => p.id == planetId || String(p.id) === String(planetId));
+                        const commander = this.game.resolveAssignedCommander
+                            ? this.game.resolveAssignedCommander(commanderKey)
+                            : null;
                         
                         if (planet && commander) {
                             html += `
@@ -9247,7 +9248,7 @@
                                         <div style="font-size: 13px; color: var(--text-secondary);">Assigned to ${planet.name}</div>
                                     </div>
                                     <button class="commander-action-btn secondary" 
-                                        onclick="window.game.commanderManager.unassignCommander('planet', '${planetId}')">
+                                        onclick="window.game.commanderManager.unassignFromTarget('planet', '${planetId}')">
                                         Unassign
                                     </button>
                                 </div>
@@ -9263,9 +9264,13 @@
                     html += '<div class="assignment-list">';
                     
                     fleetAssignments.forEach(([fleetId, commanderKey]) => {
-                        const fleet = this.game.fleets.find(f => f.id === fleetId);
-                        const [commanderId, stars] = commanderKey.split('_');
-                        const commander = this.game.commanders.find(c => c.id === commanderId && (c.stars || 1) == stars);
+                        let fleet = this.game.fleets.find(f => f && (f.id == fleetId || String(f.id) === String(fleetId)));
+                        if (!fleet && /^\d+$/.test(String(fleetId))) {
+                            fleet = this.game.fleets[Number(fleetId)];
+                        }
+                        const commander = this.game.resolveAssignedCommander
+                            ? this.game.resolveAssignedCommander(commanderKey)
+                            : null;
                         
                         if (fleet && commander) {
                             html += `
@@ -9275,7 +9280,7 @@
                                         <div style="font-size: 13px; color: var(--text-secondary);">Assigned to ${fleet.name}</div>
                                     </div>
                                     <button class="commander-action-btn secondary" 
-                                        onclick="window.game.commanderManager.unassignCommander('fleet', '${fleetId}')">
+                                        onclick="window.game.commanderManager.unassignFromTarget('fleet', '${fleetId}')">
                                         Unassign
                                     </button>
                                 </div>
@@ -9315,13 +9320,17 @@
                         `;
                     });
                 } else {
-                    this.game.fleets.forEach(fleet => {
-                        const currentAssignment = this.game.commanderAssignments.fleets[fleet.id];
+                    if (typeof this.game.ensureFleetIds === 'function') this.game.ensureFleetIds();
+                    this.game.fleets.forEach((fleet, fleetIndex) => {
+                        const fleetKey = fleet.id != null ? String(fleet.id) : String(fleetIndex);
+                        const currentAssignment = this.game.commanderAssignments.fleets[fleetKey]
+                            ?? this.game.commanderAssignments.fleets[fleetIndex]
+                            ?? this.game.commanderAssignments.fleets[String(fleetIndex)];
                         const isAssigned = !!currentAssignment;
                         
                         html += `
                             <div class="assignment-item ${isAssigned ? 'assigned' : ''}" 
-                                onclick="window.game.commanderManager.confirmAssignment('${fleet.id}')">
+                                onclick="window.game.commanderManager.confirmAssignment('${fleetKey}')">
                                 <div>
                                     <div style="font-weight: 700;">${fleet.name}</div>
                                     ${isAssigned ? '<div style="font-size: 12px; color: var(--accent-secondary);">Already has commander</div>' : ''}
@@ -9363,11 +9372,44 @@
                 }
             }
             
+            _assignmentMatchesCommander(storedKey, commanderId) {
+                if (storedKey == null) return false;
+                if (String(storedKey) === String(commanderId)) return true;
+                const parsed = this.game.parseCommanderAssignmentKey
+                    ? this.game.parseCommanderAssignmentKey(storedKey)
+                    : null;
+                return !!(parsed && parsed.id === commanderId);
+            }
+
+            unassignFromTarget(type, targetId) {
+                let changed = false;
+                if (type === 'planet' && this.game.commanderAssignments.planets[targetId] != null) {
+                    delete this.game.commanderAssignments.planets[targetId];
+                    changed = true;
+                    this.game.showNotification('✅ Commander unassigned from planet');
+                } else if (type === 'fleet') {
+                    const fleets = this.game.commanderAssignments.fleets;
+                    if (fleets[targetId] != null) {
+                        delete fleets[targetId];
+                        changed = true;
+                    } else if (fleets[String(targetId)] != null) {
+                        delete fleets[String(targetId)];
+                        changed = true;
+                    }
+                    if (changed) this.game.showNotification('✅ Commander unassigned from fleet');
+                }
+                if (changed) {
+                    if (typeof this.game.bumpCommandersRev === 'function') this.game.bumpCommandersRev();
+                    if (typeof this.game.saveGameState === 'function') this.game.saveGameState();
+                    this.refreshView();
+                    this.game.renderFleetList();
+                }
+            }
+
             unassignCommander(commanderId) {
                 let changed = false;
-                // Find where this commander is assigned
                 for (let planetId in this.game.commanderAssignments.planets) {
-                    if (this.game.commanderAssignments.planets[planetId] === commanderId) {
+                    if (this._assignmentMatchesCommander(this.game.commanderAssignments.planets[planetId], commanderId)) {
                         delete this.game.commanderAssignments.planets[planetId];
                         this.game.showNotification('✅ Commander unassigned from planet');
                         changed = true;
@@ -9376,7 +9418,7 @@
                 }
                 if (!changed) {
                     for (let fleetId in this.game.commanderAssignments.fleets) {
-                        if (this.game.commanderAssignments.fleets[fleetId] === commanderId) {
+                        if (this._assignmentMatchesCommander(this.game.commanderAssignments.fleets[fleetId], commanderId)) {
                             delete this.game.commanderAssignments.fleets[fleetId];
                             this.game.showNotification('✅ Commander unassigned from fleet');
                             changed = true;
@@ -9393,10 +9435,14 @@
             }
             
             getFleetCommander(fleetIndex) {
+                if (typeof this.game.getFleetAssignedCommander === 'function') {
+                    return this.game.getFleetAssignedCommander(fleetIndex);
+                }
                 const commanderId = this.game.commanderAssignments.fleets[fleetIndex];
                 if (!commanderId) return null;
-                
-                return this.game.commanders.find(c => c.id === commanderId);
+                return this.game.resolveAssignedCommander
+                    ? this.game.resolveAssignedCommander(commanderId)
+                    : this.game.commanders.find(c => c.id === commanderId);
             }
             
             openAssignToFleetModal(fleetIndex) {
@@ -9404,13 +9450,19 @@
                 if (!fleet) return;
                 
                 // Get available commanders (not assigned to anything)
-                const assignedCommanderIds = [
+                const assignedKeys = [
                     ...Object.values(this.game.commanderAssignments.planets),
                     ...Object.values(this.game.commanderAssignments.fleets)
                 ];
+                const assignedCommanderIds = new Set(assignedKeys.map(key => {
+                    const parsed = this.game.parseCommanderAssignmentKey
+                        ? this.game.parseCommanderAssignmentKey(key)
+                        : null;
+                    return parsed ? parsed.id : key;
+                }));
                 
                 const availableCommanders = this.game.commanders.filter(c => 
-                    !assignedCommanderIds.includes(c.id)
+                    !assignedCommanderIds.has(c.id)
                 );
                 
                 if (availableCommanders.length === 0) {
@@ -9467,10 +9519,18 @@
             }
             
             assignCommanderToFleet(fleetIndex, commanderId) {
-                this.game.commanderAssignments.fleets[fleetIndex] = commanderId;
-                
-                const commander = this.game.commanders.find(c => c.id === commanderId);
+                if (typeof this.game.ensureFleetIds === 'function') this.game.ensureFleetIds();
                 const fleet = this.game.fleets[fleetIndex];
+                const commander = this.game.commanders.find(c => c.id === commanderId);
+                if (!fleet || !commander) return;
+                const fleetKey = fleet.id != null ? String(fleet.id) : String(fleetIndex);
+                const stars = commander.stars || 1;
+                this.game.commanderAssignments.fleets[fleetKey] = commanderId + '_' + stars;
+                // Clear legacy index-only keys so lookups stay consistent
+                if (fleetKey !== String(fleetIndex)) {
+                    delete this.game.commanderAssignments.fleets[fleetIndex];
+                    delete this.game.commanderAssignments.fleets[String(fleetIndex)];
+                }
                 
                 this.game.showNotification('✅ ' + commander.name + ' assigned to ' + fleet.name);
                 this.closeFleetCommanderModal();
@@ -14974,6 +15034,7 @@ const SHIP_IMAGE_DATA = {
                     
                     if (playerData.gameState.fleets) {
                         this.fleets = playerData.gameState.fleets;
+                        if (typeof this.ensureFleetIds === 'function') this.ensureFleetIds();
                     }
                     
                     if (playerData.gameState.sieges) {
@@ -15245,6 +15306,103 @@ const SHIP_IMAGE_DATA = {
             
             bumpCommandersRev() {
                 this.commandersRev = Math.max(0, Math.floor(Number(this.commandersRev) || 0)) + 1;
+                this._stationaryFleetDirty = true;
+                if (typeof this.bumpMapActivity === 'function') this.bumpMapActivity();
+            }
+
+            /** Parse assignment keys like `terran_cmd_001_3` or legacy bare ids. */
+            parseCommanderAssignmentKey(key) {
+                if (key == null || key === '') return null;
+                const s = String(key);
+                const last = s.lastIndexOf('_');
+                if (last > 0) {
+                    const maybeStars = s.slice(last + 1);
+                    if (/^\d+$/.test(maybeStars)) {
+                        return { id: s.slice(0, last), stars: Number(maybeStars) };
+                    }
+                }
+                return { id: s, stars: null };
+            }
+
+            resolveAssignedCommander(key) {
+                const parsed = this.parseCommanderAssignmentKey(key);
+                if (!parsed || !Array.isArray(this.commanders)) return null;
+                if (parsed.stars != null) {
+                    return this.commanders.find(c => c && c.id === parsed.id && (c.stars || 1) == parsed.stars)
+                        || this.commanders.find(c => c && c.id === parsed.id)
+                        || null;
+                }
+                return this.commanders.find(c => c && c.id === parsed.id) || null;
+            }
+
+            getPlanetAssignedCommander(planetId) {
+                const assigns = this.commanderAssignments?.planets || {};
+                const key = assigns[planetId] ?? assigns[String(planetId)];
+                return this.resolveAssignedCommander(key);
+            }
+
+            getFleetAssignedCommander(fleetIndexOrId) {
+                const assigns = this.commanderAssignments?.fleets || {};
+                let key = assigns[fleetIndexOrId] ?? assigns[String(fleetIndexOrId)];
+                if (!key && typeof fleetIndexOrId === 'number') {
+                    const fleet = this.fleets?.[fleetIndexOrId];
+                    if (fleet?.id != null) key = assigns[fleet.id] ?? assigns[String(fleet.id)];
+                }
+                return this.resolveAssignedCommander(key);
+            }
+
+            ensureFleetIds() {
+                if (!Array.isArray(this.fleets)) return;
+                let changed = false;
+                this.fleets.forEach((fleet, idx) => {
+                    if (!fleet) return;
+                    if (fleet.id == null || fleet.id === '') {
+                        fleet.id = `fleet_${idx}_${fleet.createdAt || Date.now()}`;
+                        changed = true;
+                    }
+                });
+                return changed;
+            }
+
+            /** Compact rarity + star badge drawn on the galaxy map. */
+            drawMapCommanderBadge(ctx, x, y, commander, opts = {}) {
+                if (!ctx || !commander) return;
+                const stars = Math.max(1, Math.min(6, Number(commander.stars) || 1));
+                const rarity = String(commander.rarity || 'COMMON').toUpperCase();
+                const rarityInfo = (typeof COMMANDER_RARITIES !== 'undefined' && COMMANDER_RARITIES[rarity])
+                    || { name: rarity, color: '#8ba3c7' };
+                const color = rarityInfo.color || '#8ba3c7';
+                const scale = Math.max(0.75, Math.min(1.6, opts.scale || 1));
+                const tierLetter = rarity === 'LEGENDARY' ? 'L' : rarity === 'EPIC' ? 'E' : 'C';
+                const starGlyphs = '★'.repeat(stars);
+                const label = `${tierLetter} ${starGlyphs}`;
+                const fontSize = Math.max(9, Math.round(10 * scale));
+                ctx.save();
+                ctx.font = `bold ${fontSize}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const padX = 5 * scale;
+                const padY = 3 * scale;
+                const tw = ctx.measureText(label).width;
+                const bw = tw + padX * 2;
+                const bh = fontSize + padY * 2;
+                const bx = x - bw / 2;
+                const by = y - bh / 2;
+                ctx.fillStyle = 'rgba(8, 12, 22, 0.82)';
+                ctx.strokeStyle = color;
+                ctx.lineWidth = Math.max(1, 1.25 * scale);
+                const r = 4 * scale;
+                ctx.beginPath();
+                if (typeof ctx.roundRect === 'function') {
+                    ctx.roundRect(bx, by, bw, bh, r);
+                } else {
+                    ctx.rect(bx, by, bw, bh);
+                }
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = color;
+                ctx.fillText(label, x, y + 0.5);
+                ctx.restore();
             }
 
             /** Finish sieges / deferred attacks / temp bonuses after server offline catch-up. */
@@ -16117,6 +16275,19 @@ const SHIP_IMAGE_DATA = {
                                     ctx.globalAlpha = 1;
                                 }
                             }
+                        }
+                    }
+
+                    // Assigned commander rarity + star count on this planet
+                    if (isOwned && typeof this.getPlanetAssignedCommander === 'function') {
+                        const planetCmd = this.getPlanetAssignedCommander(planet.id);
+                        if (planetCmd) {
+                            const isHome = Number(planet.id) === this.homePlanetId;
+                            const badgeX = isHome ? x + pr * 0.95 : x;
+                            const badgeY = y - pr - Math.max(12, 14 * pz);
+                            this.drawMapCommanderBadge(ctx, badgeX, badgeY, planetCmd, {
+                                scale: Math.max(0.85, Math.min(1.35, pz))
+                            });
                         }
                     }
                 });
@@ -17736,7 +17907,9 @@ const SHIP_IMAGE_DATA = {
                     side: 'player',
                     kind: 'attack',
                     shipCount,
-                    alwaysVisible: true
+                    alwaysVisible: true,
+                    fleetIndex: missionFleetIndex,
+                    fleetId: missionFleetIndex != null ? this.fleets[missionFleetIndex]?.id : null
                 });
                 const attackMissionId = `atk_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
                 const attackArrivesAt = Date.now() + travelTime * 1000;
@@ -19551,6 +19724,13 @@ const SHIP_IMAGE_DATA = {
                 const durationSec = Math.max(1, Number(opts.durationSec) || 1);
                 const side = this.resolveMapFleetSide(opts);
                 const color = opts.color || this.getMapFleetSideColor(side);
+                let commander = opts.commander || null;
+                if (!commander && (opts.fleetIndex != null || opts.fleetId != null)
+                    && typeof this.getFleetAssignedCommander === 'function') {
+                    commander = this.getFleetAssignedCommander(
+                        opts.fleetIndex != null ? opts.fleetIndex : opts.fleetId
+                    );
+                }
                 const marker = {
                     id: opts.id || (`mf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`),
                     from: { x: Number(opts.from?.x) || 0, y: Number(opts.from?.y) || 0 },
@@ -19565,6 +19745,11 @@ const SHIP_IMAGE_DATA = {
                     owner: opts.owner || opts.ownerUsername || opts.username || null,
                     traveling: true,
                     alwaysVisible: !!opts.alwaysVisible || side === 'player' || side === 'guild',
+                    fleetIndex: opts.fleetIndex != null ? opts.fleetIndex : null,
+                    fleetId: opts.fleetId != null ? String(opts.fleetId) : null,
+                    commander,
+                    commanderStars: commander ? (commander.stars || 1) : null,
+                    commanderRarity: commander ? commander.rarity : null,
                 };
                 this.mapFleetMarkers.push(marker);
                 this._stationaryFleetDirty = true;
@@ -19705,6 +19890,7 @@ const SHIP_IMAGE_DATA = {
                 const fleetList = Array.isArray(this.fleets) ? this.fleets : [];
 
                 // Player fleets in orbit around home / assigned worlds
+                if (typeof this.ensureFleetIds === 'function') this.ensureFleetIds();
                 fleetList.forEach((fleet, idx) => {
                     if (!fleet || fleet.onMission) return;
                     const stacks = fleet.stacks || [];
@@ -19722,6 +19908,9 @@ const SHIP_IMAGE_DATA = {
 
                     const ang = (idx / Math.max(1, fleetList.length)) * Math.PI * 2 + now / 3500;
                     const orbit = 70 + (idx % 4) * 22;
+                    const commander = typeof this.getFleetAssignedCommander === 'function'
+                        ? this.getFleetAssignedCommander(idx)
+                        : null;
                     markers.push({
                         traveling: false,
                         x: base.position.x + Math.cos(ang) * orbit,
@@ -19732,7 +19921,12 @@ const SHIP_IMAGE_DATA = {
                         kind: 'orbit',
                         shipCount,
                         color: '#00d9ff',
-                        alwaysVisible: true
+                        alwaysVisible: true,
+                        fleetIndex: idx,
+                        fleetId: fleet.id != null ? String(fleet.id) : null,
+                        commanderStars: commander ? (commander.stars || 1) : null,
+                        commanderRarity: commander ? commander.rarity : null,
+                        commander
                     });
                 });
 
@@ -19928,6 +20122,18 @@ const SHIP_IMAGE_DATA = {
                         ? `${Math.round((marker.shipCount || 0) / 100) / 10}k`
                         : String(marker.shipCount || 0);
                     ctx.fillText(countLabel, sx + size * 0.85, sy - size * 0.85);
+
+                    // Assigned commander rarity + stars (player fleets)
+                    let fleetCmd = marker.commander || null;
+                    if (!fleetCmd && marker.side === 'player' && typeof this.getFleetAssignedCommander === 'function') {
+                        if (marker.fleetIndex != null) fleetCmd = this.getFleetAssignedCommander(marker.fleetIndex);
+                        else if (marker.fleetId != null) fleetCmd = this.getFleetAssignedCommander(marker.fleetId);
+                    }
+                    if (fleetCmd) {
+                        this.drawMapCommanderBadge(ctx, sx, sy - size - Math.max(10, 11 * Math.min(pz, 1.5)), fleetCmd, {
+                            scale: Math.max(0.8, Math.min(1.25, pz))
+                        });
+                    }
 
                     if (labelZoom || marker.traveling) {
                         ctx.font = `bold ${Math.max(9, Math.round(10 * Math.min(pz, 1.6)))}px sans-serif`;
@@ -20711,7 +20917,9 @@ const SHIP_IMAGE_DATA = {
                     kind: 'siege',
                     shipCount: siegeShipCount,
                     color: '#ff6622',
-                    alwaysVisible: true
+                    alwaysVisible: true,
+                    fleetIndex: missionFleetIdx,
+                    fleetId: missionFleetIdx != null ? this.fleets[missionFleetIdx]?.id : null
                 });
                 const siegeTravelId = `siege_travel_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
                 if (!this.pendingMissions) this.pendingMissions = [];
@@ -23286,10 +23494,12 @@ const SHIP_IMAGE_DATA = {
                 }
                 
                 // Step 2: Create fleet with empty stacks
+                const createdAt = Date.now();
                 const newFleet = {
+                    id: `fleet_${this.fleets.length}_${createdAt}`,
                     name: fleetName.trim(),
                     stacks: [],
-                    createdAt: Date.now()
+                    createdAt
                 };
                 
                 this.fleets.push(newFleet);
@@ -23745,10 +23955,12 @@ const SHIP_IMAGE_DATA = {
                         return;
                     }
                 }
+                const createdAt = Date.now();
                 const newFleet = {
+                    id: `fleet_${this.fleets.length}_${createdAt}`,
                     name: template.name + ' ' + (this.fleets.length + 1),
                     stacks: JSON.parse(JSON.stringify(template.stacks)),
-                    createdAt: Date.now()
+                    createdAt
                 };
                 template.stacks.forEach(stack => {
                     this.ships[stack.shipType].count -= stack.count;
