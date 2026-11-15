@@ -15284,14 +15284,18 @@ const SHIP_IMAGE_DATA = {
                             const t = playerData.gameState.traxis;
                             this.traxis.isActive      = t.isActive      || false;
                             this.traxis.maxHp         = t.maxHp         || 2500000;
-                            this.traxis.currentHp     = t.currentHp     || 2500000;
+                            this.traxis.currentHp     = Math.max(0, Number(t.currentHp) || 0);
                             this.traxis.phase         = t.phase         || 1;
                             this.traxis.totalDmgDealt = t.totalDmgDealt || 0;
                             this.traxis.participants  = t.participants  || {};
                             this.traxis.nextSpawnAt   = t.nextSpawnAt   || 0;
                             this.traxis.lastSpawnDate = t.lastSpawnDate || null;
+                            this.traxis.spawnTime     = t.spawnTime     || 0;
                         }
-                        if (this.traxis.isActive) {
+                        // Finish or unstick a zombie Traxis encounter left mid-fight across logins
+                        if (this.traxis.isActive && this.traxis.currentHp <= 0) {
+                            setTimeout(() => { try { this._defeatTraxis(); } catch (e) {} }, 500);
+                        } else if (this.traxis.isActive) {
                             setTimeout(() => this.showTraxisModal(), 2000);
                         }
                     }
@@ -15543,6 +15547,7 @@ const SHIP_IMAGE_DATA = {
                         participants:  this.traxis.participants,
                         nextSpawnAt:   this.traxis.nextSpawnAt,
                         lastSpawnDate: this.traxis.lastSpawnDate,
+                        spawnTime:     this.traxis.spawnTime || 0,
                     } : null,
                 };
             }
@@ -25565,10 +25570,26 @@ const SHIP_IMAGE_DATA = {
                 this._renderTraxisHUD();
             }
 
+            /** 24h lock is for joining a *new* Traxis day — never mid-fight after reload. */
+            _traxisDailyCooldownMs(me) {
+                if (!this.traxis || !this.traxis.isActive) return 0;
+                const name = me || this.playerData?.username || 'player';
+                const part = this.traxis.participants[name];
+                const lastAtk = part?.lastAttack || 0;
+                if (!lastAtk) return 0;
+                // Already in this active encounter — can keep attacking after logout/login
+                if ((part?.dmg || 0) > 0) return 0;
+                return Math.max(0, (lastAtk + 24 * 3600000) - Date.now());
+            }
+
             _renderTraxisHUD() {
                 const hud = document.getElementById('traxisHUD');
                 if (!hud) return;
                 if (!this.traxis.isActive) { hud.remove(); return; }
+                if (this.traxis.currentHp <= 0) {
+                    try { this._defeatTraxis(); } catch (e) {}
+                    return;
+                }
 
                 const me = this.playerData?.username || 'player';
                 const myDmg = (this.traxis.participants[me]?.dmg || 0);
@@ -25590,17 +25611,20 @@ const SHIP_IMAGE_DATA = {
                     else pw.textContent = '⚔️ Auto-attack active — fleets engage every 15s';
                 }
 
-                // Per-player 24hr cooldown check
-                const lastAtk = this.traxis.participants[me]?.lastAttack || 0;
-                const coolRemain = (lastAtk + 24 * 3600000) - Date.now();
-                const coolRow = document.getElementById('traxisCooldownRow');
+                const coolRemain = this._traxisDailyCooldownMs(me);
+                const coolRow = document.getElementById('traxisCoolRow');
+                const nearDead = this.traxis.currentHp > 0 && this.traxis.currentHp <= Math.max(50000, this.traxis.maxHp * 0.05);
+                const canFinish = myDmg > 0 && nearDead;
 
-                // Retreat row
+                // Retreat / finish row — always available once phase 2+, or when nearly dead
                 const retreatRow = document.getElementById('traxisRetreatRow');
                 if (retreatRow) {
-                    if (this.traxis.phase > 1 && this.traxis.currentHp > 0) {
+                    if (this.traxis.phase > 1 || canFinish) {
                         retreatRow.style.display = 'block';
-                        retreatRow.innerHTML = `<button onclick="window.game.retreatFromTraxis()" style="padding:7px 20px;font-size:11px;font-weight:700;background:rgba(100,100,100,0.15);border:1px solid #666;border-radius:6px;color:#aaa;cursor:pointer;" onmouseover="this.style.background='rgba(200,50,50,0.25)'" onmouseout="this.style.background='rgba(100,100,100,0.15)'">🏃 Retreat (Phase ${this.traxis.phase - 1} complete)</button>`;
+                        const finishBtn = canFinish
+                            ? `<button onclick="window.game.finishTraxisEncounter()" style="padding:7px 20px;font-size:11px;font-weight:700;background:rgba(255,51,0,0.25);border:1px solid #ff3300;border-radius:6px;color:#ff8866;cursor:pointer;margin-right:8px;">⚔️ Deliver Finishing Blow</button>`
+                            : '';
+                        retreatRow.innerHTML = `${finishBtn}<button onclick="window.game.retreatFromTraxis()" style="padding:7px 20px;font-size:11px;font-weight:700;background:rgba(100,100,100,0.15);border:1px solid #666;border-radius:6px;color:#aaa;cursor:pointer;" onmouseover="this.style.background='rgba(200,50,50,0.25)'" onmouseout="this.style.background='rgba(100,100,100,0.15)'">🏃 End Encounter (Retreat)</button>`;
                     } else {
                         retreatRow.style.display = 'none';
                     }
@@ -25609,14 +25633,14 @@ const SHIP_IMAGE_DATA = {
                 const btns = document.getElementById('traxisFleetBtns');
                 if (!btns) return;
 
-                if (coolRemain > 0 && lastAtk > 0) {
+                if (coolRemain > 0) {
                     if (coolRow) {
                         const hrs  = Math.floor(coolRemain / 3600000);
                         const mins = Math.floor((coolRemain % 3600000) / 60000);
                         coolRow.style.display = 'block';
                         coolRow.textContent = `⏳ You can attack again in ${hrs}h ${mins}m`;
                     }
-                    btns.innerHTML = `<div style="font-size:12px;color:#ff4444;padding:8px;">You have already attacked Traxis today. Return in ${Math.floor(coolRemain/3600000)}h ${Math.floor((coolRemain%3600000)/60000)}m.</div>`;
+                    btns.innerHTML = `<div style="font-size:12px;color:#ff4444;padding:8px;">You have already attacked Traxis today. Return in ${Math.floor(coolRemain/3600000)}h ${Math.floor((coolRemain%3600000)/60000)}m.${canFinish ? ' Use Finishing Blow below to end this encounter.' : ' Use End Encounter to clear a stuck fight.'}</div>`;
                     return;
                 } else {
                     if (coolRow) coolRow.style.display = 'none';
@@ -25651,12 +25675,12 @@ const SHIP_IMAGE_DATA = {
                     return;
                 }
 
-                // Per-player 24hr cooldown
+                // Per-player 24hr cooldown — only blocks starting a fresh fight, not continuing one
                 const me = this.playerData?.username || 'player';
-                const lastAtk = this.traxis.participants[me]?.lastAttack || 0;
-                if (lastAtk > 0 && (Date.now() - lastAtk) < 24 * 3600000) {
-                    const hrs  = Math.floor((lastAtk + 24*3600000 - Date.now()) / 3600000);
-                    const mins = Math.floor(((lastAtk + 24*3600000 - Date.now()) % 3600000) / 60000);
+                const coolRemain = this._traxisDailyCooldownMs(me);
+                if (coolRemain > 0) {
+                    const hrs  = Math.floor(coolRemain / 3600000);
+                    const mins = Math.floor((coolRemain % 3600000) / 60000);
                     this.showNotification(`⏳ You can attack Traxis again in ${hrs}h ${mins}m.`);
                     return;
                 }
@@ -25785,7 +25809,15 @@ const SHIP_IMAGE_DATA = {
 
             _defeatTraxis() {
                 this.traxis.isActive = false;
+                this.traxis.currentHp = 0;
                 document.getElementById('traxisHUD')?.remove();
+                const badge = document.getElementById('worldBossBtnBadge');
+                if (badge && !(this.worldBoss && this.worldBoss.isActive)) badge.style.display = 'none';
+                if (this._traxisAutoWaveFleets) {
+                    Object.keys(this._traxisAutoWaveFleets).forEach(i => clearTimeout(this._traxisAutoWaveFleets[i]));
+                    this._traxisAutoWaveFleets = {};
+                }
+                (this.fleets || []).forEach(f => { if (f) f._traxisEngaged = false; });
 
                 // Sort participants by damage
                 const sortedParticipants = Object.entries(this.traxis.participants)
@@ -25914,15 +25946,48 @@ const SHIP_IMAGE_DATA = {
                 document.body.appendChild(modal);
             }
 
-            retreatFromTraxis() {
-                if (!confirm('Retreat from Traxis? You forfeit your loot position.')) return;
+            finishTraxisEncounter() {
+                if (!this.traxis || !this.traxis.isActive) return;
+                const me = this.playerData?.username || 'player';
+                const remain = Math.max(0, this.traxis.currentHp || 0);
+                if (remain <= 0) {
+                    this._defeatTraxis();
+                    return;
+                }
+                if (!confirm(`Deliver the finishing blow for the last ${remain.toLocaleString()} HP and claim rewards?`)) return;
+                if (!this.traxis.participants[me]) this.traxis.participants[me] = { dmg: 0, lastAttack: 0 };
+                this.traxis.participants[me].dmg += remain;
+                this.traxis.participants[me].lastAttack = Date.now();
+                this.traxis.totalDmgDealt = (this.traxis.totalDmgDealt || 0) + remain;
+                this.traxis.currentHp = 0;
                 if (this._traxisAutoWaveFleets) {
                     Object.keys(this._traxisAutoWaveFleets).forEach(i => clearTimeout(this._traxisAutoWaveFleets[i]));
                     this._traxisAutoWaveFleets = {};
                 }
-                this.fleets.forEach(f => { if (f) f._traxisEngaged = false; });
+                (this.fleets || []).forEach(f => { if (f) f._traxisEngaged = false; });
+                this._defeatTraxis();
+            }
+
+            retreatFromTraxis() {
+                if (!confirm('End this Traxis encounter? You forfeit loot for this fight. Traxis will withdraw until the next rift spawn.')) return;
+                if (this._traxisAutoWaveFleets) {
+                    Object.keys(this._traxisAutoWaveFleets).forEach(i => clearTimeout(this._traxisAutoWaveFleets[i]));
+                    this._traxisAutoWaveFleets = {};
+                }
+                (this.fleets || []).forEach(f => { if (f) f._traxisEngaged = false; });
+                this.traxis.isActive = false;
+                this.traxis.currentHp = this.traxis.maxHp;
+                this.traxis.phase = 1;
+                // Keep lastAttack so a same-day rejoin stays locked; clear fight HP/phase
                 document.getElementById('traxisHUD')?.remove();
-                this.showNotification('🏃 Retreated from Traxis. Your damage contribution is saved.');
+                const badge = document.getElementById('worldBossBtnBadge');
+                if (badge && !(this.worldBoss && this.worldBoss.isActive)) badge.style.display = 'none';
+                this._scheduleTraxisSpawn();
+                this.showNotification('🏃 Traxis encounter ended. The Destroyer withdraws into the rift.');
+                try {
+                    if (typeof this.saveGameState === 'function') this.saveGameState();
+                    else if (typeof auth !== 'undefined' && auth.saveGameState) auth.saveGameState();
+                } catch (e) {}
             }
 
             // ═══════════════════════════════════════════════════════════
