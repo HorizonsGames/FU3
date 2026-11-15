@@ -83,9 +83,11 @@ class MPClient {
     }
 
     // ── REST: persistent state (replaces localStorage save/load) ───────
-    async saveState(state) {
+    async saveState(state, opts) {
         // Server ignores resources/inventory/HC in the blob (economyLocked).
-        return this._put('/api/state', { state });
+        // Pass { keepalive: true } from pagehide/beforeunload so mobile browsers
+        // still deliver the PUT after the tab is backgrounded/closed.
+        return this._put('/api/state', { state }, opts);
     }
 
     async loadState() {
@@ -325,15 +327,20 @@ class MPClient {
     }
 
     async _get(path) { return this._fetch(path, 'GET'); }
-    async _post(path, body) { return this._fetch(path, 'POST', body); }
-    async _put(path, body) { return this._fetch(path, 'PUT', body); }
+    async _post(path, body, opts) { return this._fetch(path, 'POST', body, opts); }
+    async _put(path, body, opts) { return this._fetch(path, 'PUT', body, opts); }
 
-    async _fetch(path, method, body) {
+    async _fetch(path, method, body, opts) {
         const headers = { 'Content-Type': 'application/json' };
         if (this.token) headers.Authorization = `Bearer ${this.token}`;
+        const keepalive = !!(opts && opts.keepalive);
         const res = await fetch(this.baseUrl + path, {
-            method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
+            method,
+            headers,
+            body: body !== undefined ? JSON.stringify(body) : undefined,
+            keepalive,
         });
+        // keepalive / pagehide responses may be empty — don't require JSON
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
         return json;

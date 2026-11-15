@@ -7235,11 +7235,29 @@
             ? new MPClient(MP_CONFIG.serverUrl)
             : null;
         window.MP = MP; // used by battle-room wiring below and by animateBattle
-        // Flush empire/HC/inventory to the server when the tab closes or refreshes
-        window.addEventListener('beforeunload', () => {
+        // Cloud hydrate gate — until true, MP PUTs are skipped so a failed load
+        // cannot overwrite a real cloud empire with a freshly generated starter.
+        window._mpCloudReady = false;
+
+        function flushCloudSaveKeepalive() {
             try {
-                if (window.auth && typeof window.auth.saveGameState === 'function') window.auth.saveGameState();
-                else if (window.game && typeof window.game.saveGameState === 'function') window.game.saveGameState();
+                if (!(window.MP && window.MP.token && window.game && window._mpCloudReady)) return;
+                const state = window.game.getGameState();
+                window.MP.saveState(state, { keepalive: true }).catch(() => {});
+            } catch (e) { /* ignore */ }
+        }
+
+        // Flush empire to the server when the tab closes / mobile backgrounds.
+        // keepalive fetch survives page teardown better than a normal PUT.
+        window.addEventListener('pagehide', flushCloudSaveKeepalive);
+        window.addEventListener('beforeunload', () => {
+            flushCloudSaveKeepalive();
+            try {
+                if (window.auth && typeof window.auth.saveGameState === 'function') {
+                    window.auth.saveGameState({ light: true });
+                } else if (window.game && typeof window.game.saveGameState === 'function') {
+                    window.game.saveGameState({ light: true });
+                }
             } catch (e) { /* ignore */ }
         });
 
@@ -13841,14 +13859,18 @@ const SHIP_IMAGE_DATA = {
             saveGameState(opts) {
                 if (!window.game) return;
                 const light = !!(opts && opts.light);
+                const forceCloud = !!(opts && opts.forceCloud);
                 const gameState = window.game.getGameState();
                 // Local browser DB (legacy fallback) when a local session exists
-                if (this.currentSession) {
+                // (MP tokens are not in the local session map — update is a no-op then).
+                if (this.currentSession && this.db && typeof this.db.getPlayerBySession === 'function'
+                    && this.db.getPlayerBySession(this.currentSession)) {
                     this.db.updatePlayerState(this.currentSession, gameState);
                 }
                 // Authoritative persistence: multiplayer backend (Postgres).
                 // Full saves reconcile economy; light autosaves skip that hitch.
-                if (window.MP && window.MP.token) {
+                // Skip until cloud hydrate completes so a mid-login failure cannot wipe progress.
+                if (window.MP && window.MP.token && (window._mpCloudReady || forceCloud)) {
                     const doSave = () => {
                         const latest = window.game.getGameState();
                         return window.MP.saveState(latest).then((res) => {
@@ -15452,7 +15474,8 @@ const SHIP_IMAGE_DATA = {
                     window.auth.saveGameState(opts);
                     return;
                 }
-                if (window.MP && window.MP.token) {
+                const forceCloud = !!(opts && opts.forceCloud);
+                if (window.MP && window.MP.token && (window._mpCloudReady || forceCloud)) {
                     window.MP.saveState(this.getGameState()).then((res) => {
                         if (res && res.economyLocked && typeof applyServerEconomyState === 'function') {
                             applyServerEconomyState(res, { skipSave: true });
@@ -15469,6 +15492,13 @@ const SHIP_IMAGE_DATA = {
 
             getGameState() {
                 return {
+                    savedAt: Date.now(),
+                    selectedRace: this.selectedRace
+                        ? { name: this.selectedRace.name, id: this.selectedRace.id }
+                        : null,
+                    playerData: this.playerData
+                        ? { username: this.playerData.username, race: this.playerData.race }
+                        : null,
                     horizonCoins: this.horizonCoins || 0,
                     resources: this.resources,
                     planets: this.planets,
@@ -15852,6 +15882,11 @@ const SHIP_IMAGE_DATA = {
                     this._visibilityHandler = () => {
                         if (document.hidden) {
                             this.stopMapAnimation();
+                            // Mobile browsers suspend tabs aggressively — flush cloud save now
+                            try {
+                                if (typeof flushCloudSaveKeepalive === 'function') flushCloudSaveKeepalive();
+                                if (window.auth && window.auth.saveGameState) window.auth.saveGameState({ light: true });
+                            } catch (e) {}
                         } else {
                             const traveling = (this.mapFleetMarkers || []).some(m => m && m.traveling && m.endTime > Date.now());
                             if ((traveling || this._mapDirty) && !this.mapAnimating) this.startMapAnimation();
@@ -31998,22 +32033,66 @@ const SHIP_IMAGE_DATA = {
                         throw new Error('Multiplayer login returned no account');
                     }
                     console.log('✅ MP login successful!', mpPlayer.username);
+                    window._mpCloudReady = false;
                     if (window.auth) window.auth.currentSession = MP.token;
                     await mpConnectSocket();
-                    const loaded = await MP.loadState().catch(() => ({ state: {}, horizonCoins: null }));
-                    const state = (loaded && loaded.state && typeof loaded.state === 'object') ? { ...loaded.state } : {};
-                    if (loaded && loaded.horizonCoins != null) state.horizonCoins = loaded.horizonCoins;
+
+                    // Never swallow load failures with an empty empire — that used to
+                    // generate starter planets and autosave-wipe the real cloud save.
+                    let loaded = null;
+                    let loadErr = null;
+                    for (let attempt = 0; attempt < 2; attempt++) {
+                        try {
+                            loaded = await MP.loadState();
+                            loadErr = null;
+                            break;
+                        } catch (e) {
+                            loadErr = e;
+                            console.warn('[MP] loadState attempt failed:', e && e.message);
+                        }
+                    }
+                    if (loadErr || !loaded) {
+                        throw new Error('Could not load your cloud save. Check your connection and try again — your progress was not reset.');
+                    }
+
+                    const state = (loaded.state && typeof loaded.state === 'object') ? { ...loaded.state } : {};
+                    if (loaded.horizonCoins != null) state.horizonCoins = loaded.horizonCoins;
+                    if (loaded.resources) state.resources = loaded.resources;
+                    if (loaded.inventory) state.inventory = loaded.inventory;
+
+                    window._mpCloudReady = true;
                     startGameSession({
                         username: mpPlayer.username,
-                        race: mpPlayer.race,
+                        race: mpPlayer.race || state.selectedRace?.name || state.playerData?.race,
                         accountType: normalizeAccountType(mpPlayer.accountType),
                         sessionToken: MP.token,
                         gameState: state, // nested — loadPlayerData expects gameState.*
                     });
                 }).catch((mpErr) => {
-                    console.warn('[MP] login failed, falling back to local auth:', mpErr && mpErr.message);
+                    const msg = (mpErr && mpErr.message) || '';
+                    // Only fall back to browser-local auth for credential misses
+                    // (legacy pre-backend accounts). Network/cloud errors must NOT
+                    // silently open a local session — that looks like "progress reset"
+                    // on other devices.
+                    const isAuthFail = /invalid username or password/i.test(msg)
+                        || /unauthorized/i.test(msg)
+                        || /credentials/i.test(msg);
+                    if (!isAuthFail) {
+                        console.error('[MP] login/cloud load failed:', msg);
+                        errorDiv.textContent = msg || 'Cloud login failed. Progress was not changed.';
+                        errorDiv.style.display = 'block';
+                        return;
+                    }
+                    console.warn('[MP] auth rejected, trying local-only account:', msg);
                     try {
                         handleLoginLocal(username, password, errorDiv);
+                        if (errorDiv.style.display !== 'block' && window.chatManager) {
+                            setTimeout(() => {
+                                chatManager.addMessage('SYSTEM',
+                                    '⚠️ Local-only login — this progress stays on THIS device and will not sync to phones/other PCs. Use a cloud account when the server is reachable.',
+                                    'system');
+                            }, 800);
+                        }
                     } catch (localErr) {
                         errorDiv.textContent = localErr.message || 'Login failed';
                         errorDiv.style.display = 'block';
@@ -32154,20 +32233,48 @@ const SHIP_IMAGE_DATA = {
                         throw new Error('Multiplayer register returned no account');
                     }
                     console.log('✅ MP account created!', mpPlayer.username);
+                    window._mpCloudReady = false;
                     if (window.auth) window.auth.currentSession = MP.token;
                     await mpConnectSocket();
                     // Seed empty server save with starter HC so refresh doesn't invent a new empire blob
-                    const starter = { horizonCoins: 500, inventory: [], resources: {} };
-                    try { await MP.saveState(starter); } catch (e) { console.warn('[MP] seed save failed:', e.message); }
+                    const starter = {
+                        horizonCoins: 500,
+                        inventory: [],
+                        resources: {},
+                        selectedRace: { name: window.auth.selectedRace },
+                        playerData: { username: mpPlayer.username, race: window.auth.selectedRace },
+                    };
+                    try {
+                        await MP.saveState(starter);
+                    } catch (e) {
+                        console.warn('[MP] seed save failed:', e.message);
+                    }
+                    window._mpCloudReady = true;
                     startGameSession({
                         username: mpPlayer.username,
-                        race: mpPlayer.race,
+                        race: mpPlayer.race || window.auth.selectedRace,
                         accountType: normalizeAccountType(mpPlayer.accountType),
                         sessionToken: MP.token,
                         gameState: starter,
                     });
+                    // Push the generated starter planets ASAP so other devices see them
+                    setTimeout(() => {
+                        try {
+                            if (window.auth && window.auth.saveGameState) {
+                                window.auth.saveGameState({ forceCloud: true });
+                            }
+                        } catch (e) {}
+                    }, 1500);
                 }).catch((mpErr) => {
-                    console.warn('[MP] register failed, falling back to local auth:', mpErr && mpErr.message);
+                    const msg = (mpErr && mpErr.message) || '';
+                    const isTaken = /taken|already|exists|conflict/i.test(msg);
+                    const isNetwork = /failed|network|fetch|timeout|unreachable|5\d\d/i.test(msg) && !isTaken;
+                    if (isNetwork) {
+                        errorDiv.textContent = 'Cloud registration failed (' + msg + '). Try again — a local-only account would not sync across devices.';
+                        errorDiv.style.display = 'block';
+                        return;
+                    }
+                    console.warn('[MP] register failed, falling back to local auth:', msg);
                     try {
                         handleRegisterLocal(username, email, password, window.auth.selectedRace, errorDiv);
                     } catch (localErr) {
